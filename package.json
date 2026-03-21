@@ -1,0 +1,12 @@
+{
+  "name": "muzzeum",
+  "version": "1.0.0",
+  "description": "Chuck Norris Memorial Museum - Multiplayer Voxel Web Game",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

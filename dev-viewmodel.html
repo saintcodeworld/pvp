@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Viewmodel Position Debugger</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #1a1a1a; }
+    canvas { display: block; }
+    #info {
+      position: fixed; bottom: 15px; left: 15px; z-index: 10;
+      color: #aaa; font-family: monospace; font-size: 12px;
+      background: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 4px;
+      line-height: 1.6;
+    }
+    #info kbd { color: #f5a623; }
+    #crosshair {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 16px; height: 16px; z-index: 5; pointer-events: none;
+    }
+    #crosshair::before, #crosshair::after {
+      content: ''; position: absolute; background: rgba(255,255,255,0.4);
+    }
+    #crosshair::before { width: 1px; height: 16px; left: 7.5px; top: 0; }
+    #crosshair::after { width: 16px; height: 1px; top: 7.5px; left: 0; }
+  </style>
+</head>
+<body>
+  <div id="crosshair"></div>
+  <div id="info">
+    <kbd>Click</kbd> to lock mouse &nbsp;|&nbsp; <kbd>WASD</kbd> move &nbsp;|&nbsp; <kbd>Mouse</kbd> look<br>
+    <kbd>Left Click</kbd> or <kbd>Space</kbd> to swing &nbsp;|&nbsp; <kbd>▶️ Test Swing</kbd> button in GUI<br>
+    Use the GUI panel to adjust viewmodel, hand models &amp; hitting animation.<br>
+    Press <kbd>Log Hand Config</kbd> to copy hand model values to console.
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/",
+      "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.19.2/dist/lil-gui.esm.min.js"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import GUI from 'lil-gui';
+
+    // ─── Scene setup ───
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x222222);
+
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.position.set(0, 1.7, 2);
+    scene.add(camera);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    document.body.appendChild(renderer.domElement);
+
+    // ─── Lighting ───
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambient);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(5, 10, 5);
+    scene.add(dirLight);
+    const hemi = new THREE.HemisphereLight(0x88ccff, 0x444422, 0.4);
+    scene.add(hemi);
+
+    // ─── Grid + Axes ───
+    const grid = new THREE.GridHelper(20, 20, 0x555555, 0x333333);
+    scene.add(grid);
+    const axes = new THREE.AxesHelper(3);
+    scene.add(axes);
+
+    // Reference box at origin
+    const refGeo = new THREE.BoxGeometry(1, 1, 1);
+    const refMat = new THREE.MeshLambertMaterial({ color: 0x666666, wireframe: true });
+    const refBox = new THREE.Mesh(refGeo, refMat);
+    refBox.position.set(0, 0.5, 0);
+    scene.add(refBox);
+
+    // ─── Viewmodel group (attached to camera) ───
+    const viewmodelGroup = new THREE.Group();
+    camera.add(viewmodelGroup);
+
+    // ─── Params (what the GUI controls) ───
+    const params = {
+      posX: 0.45,
+      posY: -0.35,
+      posZ: -0.55,
+      rotX: 0,
+      rotY: 0,
+      rotZ: 0.3,
+      scaleX: 0.7,
+      scaleY: 0.7,
+    };
+
+    // ─── Hand Model Params ───
+    const handParams = {
+      // Fist hand model
+      fistPosX: 0.38,
+      fistPosY: -0.45,
+      fistPosZ: -0.55,
+      fistRotX: -1.8,
+      fistRotY: 0.2,
+      fistRotZ: 0.3,
+      // Sword hand model
+      swordPosX: 0.210,
+      swordPosY: -0.110,
+      swordPosZ: -0.250,
+      swordRotX: 0.260,
+      swordRotY: -1.440,
+      swordRotZ: -0.360,
+      swordScaleX: 0.430,
+      swordScaleY: 0.540,
+    };
+
+    // ─── Hitting animation params ───
+    const hitParams = {
+      swingSpeed: 5,        // how fast swordSwing decreases (delta * speed)
+      rotXIntensity: 1.4,   // max rotation offset on X axis during swing
+      rotZIntensity: 0.4,   // max rotation offset on Z axis during swing
+      posYKick: 0.0,        // vertical kick during swing peak
+      posXKick: 0.0,        // horizontal kick during swing peak
+      curveType: 'sin',     // 'sin' | 'ease-out' | 'ease-in-out' | 'linear'
+      swingStartValue: 1.0, // initial swing progress value
+    };
+
+    // ─── Hand-specific hit animation params ───
+    const fistHitParams = {
+      swingSpeed: 2.2,
+      rotXIntensity: 0.27,
+      rotZIntensity: 0.27,
+      posYKick: 0.0,
+      posXKick: 0.0,
+      curveType: 'sin',
+    };
+
+    const swordHitParams = {
+      swingSpeed: 2.2,
+      rotXIntensity: 0.27,
+      rotZIntensity: 0.27,
+      posYKick: 0.0,
+      posXKick: 0.0,
+      curveType: 'sin',
+    };
+
+    let swingProgress = 0;
+    let isSwinging = false;
+
+    function triggerSwing() {
+      if (isSwinging) return;
+      isSwinging = true;
+      swingProgress = hitParams.swingStartValue;
+    }
+
+    function getSwingCurve(t) {
+      switch (hitParams.curveType) {
+        case 'sin':          return Math.sin(t * Math.PI);
+        case 'ease-out':     return 1 - Math.pow(1 - Math.sin(t * Math.PI * 0.5), 2);
+        case 'ease-in-out':  return 0.5 - 0.5 * Math.cos(t * Math.PI);
+        case 'linear':       return t;
+        default:             return Math.sin(t * Math.PI);
+      }
+    }
+
+    let spritePlane = null;
+    let fistHandGroup = null;
+    let swordHandGroup = null;
+    let activeHand = 'sword'; // 'fist' or 'sword'
+
+    function applyParams() {
+      viewmodelGroup.position.set(params.posX, params.posY, params.posZ);
+      viewmodelGroup.rotation.set(params.rotX, params.rotY, params.rotZ);
+      if (spritePlane) {
+        spritePlane.geometry.dispose();
+        spritePlane.geometry = new THREE.PlaneGeometry(params.scaleX, params.scaleY);
+      }
+    }
+
+    function applyHandParams() {
+      if (fistHandGroup) {
+        fistHandGroup.position.set(handParams.fistPosX, handParams.fistPosY, handParams.fistPosZ);
+        fistHandGroup.rotation.set(handParams.fistRotX, handParams.fistRotY, handParams.fistRotZ);
+      }
+      if (swordHandGroup) {
+        swordHandGroup.position.set(handParams.swordPosX, handParams.swordPosY, handParams.swordPosZ);
+        swordHandGroup.rotation.set(handParams.swordRotX, handParams.swordRotY, handParams.swordRotZ);
+        const swordPlane = swordHandGroup.children[0];
+        if (swordPlane) {
+          swordPlane.geometry.dispose();
+          swordPlane.geometry = new THREE.PlaneGeometry(handParams.swordScaleX, handParams.swordScaleY);
+        }
+      }
+    }
+
+    function switchHand(hand) {
+      activeHand = hand;
+      if (fistHandGroup) fistHandGroup.visible = (hand === 'fist');
+      if (swordHandGroup) swordHandGroup.visible = (hand === 'sword');
+    }
+
+    // ─── Steve Arm Textures ───
+    function makeSteveArmTex() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 16; canvas.height = 16;
+      const ctx = canvas.getContext('2d');
+      for (let y = 0; y < 16; y++) {
+        for (let x = 0; x < 16; x++) {
+          const v = (Math.random() - 0.5) * 8;
+          ctx.fillStyle = `rgb(${(210 + v)|0},${(160 + v)|0},${(120 + v)|0})`;
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      return tex;
+    }
+
+    function makeSteveShirtTex() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 16; canvas.height = 16;
+      const ctx = canvas.getContext('2d');
+      for (let y = 0; y < 16; y++) {
+        for (let x = 0; x < 16; x++) {
+          const v = (Math.random() - 0.5) * 6;
+          ctx.fillStyle = `rgb(${(58 + v)|0},${(178 + v)|0},${(178 + v)|0})`;
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      return tex;
+    }
+
+    function buildSteveArm() {
+      const group = new THREE.Group();
+      const px = 0.0625; // 1 pixel unit
+      const skinMat = new THREE.MeshLambertMaterial({ map: makeSteveArmTex() });
+      const shirtMat = new THREE.MeshLambertMaterial({ map: makeSteveShirtTex() });
+
+      const armW = 4 * px;
+      const armH = 12 * px;
+      const armD = 4 * px;
+
+      // Upper arm (shirt sleeve)
+      const sleeve = new THREE.Mesh(
+        new THREE.BoxGeometry(armW + 0.01, 4 * px, armD + 0.01),
+        shirtMat
+      );
+      sleeve.position.set(0, -2 * px, 0);
+      group.add(sleeve);
+
+      // Lower arm (skin)
+      const forearm = new THREE.Mesh(
+        new THREE.BoxGeometry(armW, 8 * px, armD),
+        skinMat
+      );
+      forearm.position.set(0, -8 * px, 0);
+      group.add(forearm);
+
+      return group;
+    }
+
+    // ─── Create Hand Models ───
+    // Fist hand model
+    fistHandGroup = buildSteveArm();
+    fistHandGroup.position.set(handParams.fistPosX, handParams.fistPosY, handParams.fistPosZ);
+    fistHandGroup.rotation.set(handParams.fistRotX, handParams.fistRotY, handParams.fistRotZ);
+    fistHandGroup.visible = false;
+    camera.add(fistHandGroup);
+
+    // Sword hand model
+    swordHandGroup = new THREE.Group();
+    swordHandGroup.position.set(handParams.swordPosX, handParams.swordPosY, handParams.swordPosZ);
+    swordHandGroup.rotation.set(handParams.swordRotX, handParams.swordRotY, handParams.swordRotZ);
+    swordHandGroup.visible = true;
+    camera.add(swordHandGroup);
+
+    const swordImg = new Image();
+    swordImg.crossOrigin = 'anonymous';
+    swordImg.onload = () => {
+      const tex = new THREE.Texture(swordImg);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.needsUpdate = true;
+
+      const mat = new THREE.MeshBasicMaterial({
+        map: tex, transparent: true, alphaTest: 0.1,
+        side: THREE.DoubleSide, depthWrite: false,
+      });
+      const swordPlane = new THREE.Mesh(new THREE.PlaneGeometry(handParams.swordScaleX, handParams.swordScaleY), mat);
+      swordHandGroup.add(swordPlane);
+      console.log('✅ Sword sprite loaded');
+    };
+    swordImg.src = 'public/assets/Sprite-0001.png';
+
+    applyParams();
+
+    // ─── Lil-GUI ───
+    const gui = new GUI({ title: '⚔️ Viewmodel Debugger' });
+
+    const groupFolder = gui.addFolder('Position');
+    groupFolder.add(params, 'posX', -5, 5, 0.01).name('X').onChange(applyParams);
+    groupFolder.add(params, 'posY', -5, 5, 0.01).name('Y').onChange(applyParams);
+    groupFolder.add(params, 'posZ', -5, 5, 0.01).name('Z').onChange(applyParams);
+
+    const groupRotFolder = gui.addFolder('Rotation');
+    groupRotFolder.add(params, 'rotX', -Math.PI * 2, Math.PI * 2, 0.01).name('X').onChange(applyParams);
+    groupRotFolder.add(params, 'rotY', -Math.PI * 2, Math.PI * 2, 0.01).name('Y').onChange(applyParams);
+    groupRotFolder.add(params, 'rotZ', -Math.PI * 2, Math.PI * 2, 0.01).name('Z').onChange(applyParams);
+
+    const scaleFolder = gui.addFolder('Sprite Size');
+    scaleFolder.add(params, 'scaleX', 0.1, 3, 0.01).name('Width').onChange(applyParams);
+    scaleFolder.add(params, 'scaleY', 0.1, 3, 0.01).name('Height').onChange(applyParams);
+
+    gui.add({
+      logCoordinates() {
+        console.log('═══════════════════════════════════════');
+        console.log('📋 VIEWMODEL COORDINATES — copy into main.js');
+        console.log('═══════════════════════════════════════');
+        console.log(`// Group (swordHandGroup)`);
+        console.log(`swordHandGroup.position.set(${params.posX.toFixed(3)}, ${params.posY.toFixed(3)}, ${params.posZ.toFixed(3)});`);
+        console.log(`swordHandGroup.rotation.set(${params.rotX.toFixed(3)}, ${params.rotY.toFixed(3)}, ${params.rotZ.toFixed(3)});`);
+        console.log('');
+        console.log(`// Sprite plane size`);
+        console.log(`new THREE.PlaneGeometry(${params.scaleX.toFixed(3)}, ${params.scaleY.toFixed(3)})`);
+        console.log('═══════════════════════════════════════');
+      }
+    }, 'logCoordinates').name('📋 Log Coordinates');
+
+    // ─── Hitting Animation GUI ───
+    const hitFolder = gui.addFolder('⚔️ Hitting Animation');
+    hitFolder.add(hitParams, 'swingSpeed', 1, 20, 0.1).name('Speed');
+    hitFolder.add(hitParams, 'rotXIntensity', 0, 3, 0.01).name('Rot X Intensity');
+    hitFolder.add(hitParams, 'rotZIntensity', 0, 3, 0.01).name('Rot Z Intensity');
+    hitFolder.add(hitParams, 'posYKick', -0.5, 0.5, 0.01).name('Y Kick');
+    hitFolder.add(hitParams, 'posXKick', -0.5, 0.5, 0.01).name('X Kick');
+    hitFolder.add(hitParams, 'swingStartValue', 0.5, 2.0, 0.05).name('Swing Range');
+    hitFolder.add(hitParams, 'curveType', ['sin', 'ease-out', 'ease-in-out', 'linear']).name('Curve');
+    hitFolder.add({ swing: triggerSwing }, 'swing').name('▶️ Test Swing');
+    hitFolder.open();
+
+    hitFolder.add({
+      logHitParams() {
+        console.log('═══════════════════════════════════════');
+        console.log('⚔️ HITTING ANIMATION — copy into main.js updateHandAnimation()');
+        console.log('═══════════════════════════════════════');
+        console.log(`// Swing speed:  swordSwing -= delta * ${hitParams.swingSpeed.toFixed(1)};`);
+        console.log(`// Swing curve:  const swingCurve = /* ${hitParams.curveType} */ ...;`);
+        console.log(`// Rotation:     hand.rotation.x = baseRotX + swingCurve * ${hitParams.rotXIntensity.toFixed(2)};`);
+        console.log(`//               hand.rotation.z = baseRotZ - swingCurve * ${hitParams.rotZIntensity.toFixed(2)};`);
+        if (hitParams.posYKick !== 0) console.log(`// Y Kick:       hand.position.y += swingCurve * ${hitParams.posYKick.toFixed(2)};`);
+        if (hitParams.posXKick !== 0) console.log(`// X Kick:       hand.position.x += swingCurve * ${hitParams.posXKick.toFixed(2)};`);
+        console.log(`// Start value:  swordSwing = ${hitParams.swingStartValue.toFixed(2)};`);
+        console.log('═══════════════════════════════════════');
+      }
+    }, 'logHitParams').name('📋 Log Hit Params');
+
+    // ─── Hand Model GUI ───
+    const handSwitcher = { activeHand: 'sword' };
+    gui.add(handSwitcher, 'activeHand', ['fist', 'sword']).name('Active Hand Model').onChange((val) => {
+      switchHand(val);
+    });
+
+    const fistFolder = gui.addFolder('✊ Fist Hand Model');
+    fistFolder.add(handParams, 'fistPosX', -2, 2, 0.001).name('Pos X').onChange(applyHandParams);
+    fistFolder.add(handParams, 'fistPosY', -2, 2, 0.001).name('Pos Y').onChange(applyHandParams);
+    fistFolder.add(handParams, 'fistPosZ', -2, 2, 0.001).name('Pos Z').onChange(applyHandParams);
+    fistFolder.add(handParams, 'fistRotX', -Math.PI * 2, Math.PI * 2, 0.001).name('Rot X').onChange(applyHandParams);
+    fistFolder.add(handParams, 'fistRotY', -Math.PI * 2, Math.PI * 2, 0.001).name('Rot Y').onChange(applyHandParams);
+    fistFolder.add(handParams, 'fistRotZ', -Math.PI * 2, Math.PI * 2, 0.001).name('Rot Z').onChange(applyHandParams);
+    fistFolder.add({ showFist: () => switchHand('fist') }, 'showFist').name('👁️ Show Fist');
+
+    const fistHitFolder = gui.addFolder('👊 Fist Hit Animation');
+    fistHitFolder.add(fistHitParams, 'swingSpeed', 0.5, 10, 0.1).name('Speed');
+    fistHitFolder.add(fistHitParams, 'rotXIntensity', 0, 3, 0.01).name('Rot X Intensity');
+    fistHitFolder.add(fistHitParams, 'rotZIntensity', 0, 3, 0.01).name('Rot Z Intensity');
+    fistHitFolder.add(fistHitParams, 'posYKick', -0.5, 0.5, 0.01).name('Y Kick');
+    fistHitFolder.add(fistHitParams, 'posXKick', -0.5, 0.5, 0.01).name('X Kick');
+    fistHitFolder.add(fistHitParams, 'curveType', ['sin', 'ease-out', 'ease-in-out', 'linear']).name('Curve');
+    fistHitFolder.add({ testPunch: () => { switchHand('fist'); triggerSwing(); } }, 'testPunch').name('▶️ Test Punch');
+
+    const swordFolder = gui.addFolder('⚔️ Sword Hand Model');
+    swordFolder.add(handParams, 'swordPosX', -2, 2, 0.001).name('Pos X').onChange(applyHandParams);
+    swordFolder.add(handParams, 'swordPosY', -2, 2, 0.001).name('Pos Y').onChange(applyHandParams);
+    swordFolder.add(handParams, 'swordPosZ', -2, 2, 0.001).name('Pos Z').onChange(applyHandParams);
+    swordFolder.add(handParams, 'swordRotX', -Math.PI * 2, Math.PI * 2, 0.001).name('Rot X').onChange(applyHandParams);
+    swordFolder.add(handParams, 'swordRotY', -Math.PI * 2, Math.PI * 2, 0.001).name('Rot Y').onChange(applyHandParams);
+    swordFolder.add(handParams, 'swordRotZ', -Math.PI * 2, Math.PI * 2, 0.001).name('Rot Z').onChange(applyHandParams);
+    swordFolder.add(handParams, 'swordScaleX', 0.1, 2, 0.001).name('Scale X').onChange(applyHandParams);
+    swordFolder.add(handParams, 'swordScaleY', 0.1, 2, 0.001).name('Scale Y').onChange(applyHandParams);
+    swordFolder.add({ showSword: () => switchHand('sword') }, 'showSword').name('👁️ Show Sword');
+
+    const swordHitFolder = gui.addFolder('⚔️ Sword Hit Animation');
+    swordHitFolder.add(swordHitParams, 'swingSpeed', 0.5, 10, 0.1).name('Speed');
+    swordHitFolder.add(swordHitParams, 'rotXIntensity', 0, 3, 0.01).name('Rot X Intensity');
+    swordHitFolder.add(swordHitParams, 'rotZIntensity', 0, 3, 0.01).name('Rot Z Intensity');
+    swordHitFolder.add(swordHitParams, 'posYKick', -0.5, 0.5, 0.01).name('Y Kick');
+    swordHitFolder.add(swordHitParams, 'posXKick', -0.5, 0.5, 0.01).name('X Kick');
+    swordHitFolder.add(swordHitParams, 'curveType', ['sin', 'ease-out', 'ease-in-out', 'linear']).name('Curve');
+    swordHitFolder.add({ testSwing: () => { switchHand('sword'); triggerSwing(); } }, 'testSwing').name('▶️ Test Swing');
+
+    gui.add({
+      logHandParams() {
+        console.log('═══════════════════════════════════════');
+        console.log('✊⚔️ HAND MODEL CONFIG — copy into main.js createHandModel()');
+        console.log('═══════════════════════════════════════');
+        console.log('// FIST HAND MODEL:');
+        console.log(`fistGroup.position.set(${handParams.fistPosX.toFixed(3)}, ${handParams.fistPosY.toFixed(3)}, ${handParams.fistPosZ.toFixed(3)});`);
+        console.log(`fistGroup.rotation.set(${handParams.fistRotX.toFixed(3)}, ${handParams.fistRotY.toFixed(3)}, ${handParams.fistRotZ.toFixed(3)});`);
+        console.log('');
+        console.log('// SWORD HAND MODEL:');
+        console.log(`swordHandGroup.position.set(${handParams.swordPosX.toFixed(3)}, ${handParams.swordPosY.toFixed(3)}, ${handParams.swordPosZ.toFixed(3)});`);
+        console.log(`swordHandGroup.rotation.set(${handParams.swordRotX.toFixed(3)}, ${handParams.swordRotY.toFixed(3)}, ${handParams.swordRotZ.toFixed(3)});`);
+        console.log('');
+        console.log('// SWORD SPRITE SIZE:');
+        console.log(`new THREE.PlaneGeometry(${handParams.swordScaleX.toFixed(3)}, ${handParams.swordScaleY.toFixed(3)})`);
+        console.log('');
+        console.log('// updateHandAnimation() base values:');
+        console.log(`const baseX = isSword ? ${handParams.swordPosX.toFixed(3)} : ${handParams.fistPosX.toFixed(3)};`);
+        console.log(`const baseY = isSword ? ${handParams.swordPosY.toFixed(3)} : ${handParams.fistPosY.toFixed(3)};`);
+        console.log(`const baseRotX = isSword ? ${handParams.swordRotX.toFixed(3)} : ${handParams.fistRotX.toFixed(3)};`);
+        console.log(`const baseRotZ = isSword ? ${handParams.swordRotZ.toFixed(3)} : ${handParams.fistRotZ.toFixed(3)};`);
+        console.log('');
+        console.log('// FIST HIT ANIMATION (in updateHandAnimation):');
+        console.log(`// Speed: swordSwing -= delta * ${fistHitParams.swingSpeed.toFixed(1)};`);
+        console.log(`// Curve: ${fistHitParams.curveType}`);
+        console.log(`hand.rotation.x = baseRotX - swingCurve * ${fistHitParams.rotXIntensity.toFixed(2)};`);
+        console.log(`hand.rotation.z = baseRotZ + swingCurve * ${fistHitParams.rotZIntensity.toFixed(2)};`);
+        if (fistHitParams.posYKick !== 0) console.log(`hand.position.y = baseY + swingCurve * ${fistHitParams.posYKick.toFixed(2)};`);
+        if (fistHitParams.posXKick !== 0) console.log(`hand.position.x = baseX + swingCurve * ${fistHitParams.posXKick.toFixed(2)};`);
+        console.log('');
+        console.log('// SWORD HIT ANIMATION (in updateHandAnimation):');
+        console.log(`// Speed: swordSwing -= delta * ${swordHitParams.swingSpeed.toFixed(1)};`);
+        console.log(`// Curve: ${swordHitParams.curveType}`);
+        console.log(`hand.rotation.x = baseRotX - swingCurve * ${swordHitParams.rotXIntensity.toFixed(2)};`);
+        console.log(`hand.rotation.z = baseRotZ + swingCurve * ${swordHitParams.rotZIntensity.toFixed(2)};`);
+        if (swordHitParams.posYKick !== 0) console.log(`hand.position.y = baseY + swingCurve * ${swordHitParams.posYKick.toFixed(2)};`);
+        if (swordHitParams.posXKick !== 0) console.log(`hand.position.x = baseX + swingCurve * ${swordHitParams.posXKick.toFixed(2)};`);
+        console.log('═══════════════════════════════════════');
+      }
+    }, 'logHandParams').name('📋 Log Hand Config');
+
+    gui.add({
+      logCoordinates() {
+        console.log('═══════════════════════════════════════');
+        console.log('📋 VIEWMODEL COORDINATES — copy into main.js');
+        console.log('═══════════════════════════════════════');
+        console.log(`// Group (swordHandGroup)`);
+        console.log(`swordHandGroup.position.set(${params.posX.toFixed(3)}, ${params.posY.toFixed(3)}, ${params.posZ.toFixed(3)});`);
+        console.log(`swordHandGroup.rotation.set(${params.rotX.toFixed(3)}, ${params.rotY.toFixed(3)}, ${params.rotZ.toFixed(3)});`);
+        console.log('');
+        console.log(`// Sprite plane size`);
+        console.log(`new THREE.PlaneGeometry(${params.scaleX.toFixed(3)}, ${params.scaleY.toFixed(3)})`);
+        console.log('═══════════════════════════════════════');
+      }
+    }, 'logCoordinates').name('📋 Log Coordinates');
+
+    gui.add({
+      resetDefaults() {
+        params.posX = 0.45; params.posY = -0.35; params.posZ = -0.55;
+        params.rotX = 0; params.rotY = 0; params.rotZ = 0.3;
+        params.scaleX = 0.7; params.scaleY = 0.7;
+        hitParams.swingSpeed = 5; hitParams.rotXIntensity = 1.4;
+        hitParams.rotZIntensity = 0.4; hitParams.posYKick = 0.0;
+        hitParams.posXKick = 0.0; hitParams.curveType = 'sin';
+        hitParams.swingStartValue = 1.0;
+        handParams.fistPosX = 0.38; handParams.fistPosY = -0.45; handParams.fistPosZ = -0.55;
+        handParams.fistRotX = -1.8; handParams.fistRotY = 0.2; handParams.fistRotZ = 0.3;
+        handParams.swordPosX = 0.210; handParams.swordPosY = -0.110; handParams.swordPosZ = -0.250;
+        handParams.swordRotX = 0.260; handParams.swordRotY = -1.440; handParams.swordRotZ = -0.360;
+        handParams.swordScaleX = 0.430; handParams.swordScaleY = 0.540;
+        fistHitParams.swingSpeed = 2.2; fistHitParams.rotXIntensity = 0.27;
+        fistHitParams.rotZIntensity = 0.27; fistHitParams.posYKick = 0.0;
+        fistHitParams.posXKick = 0.0; fistHitParams.curveType = 'sin';
+        swordHitParams.swingSpeed = 2.2; swordHitParams.rotXIntensity = 0.27;
+        swordHitParams.rotZIntensity = 0.27; swordHitParams.posYKick = 0.0;
+        swordHitParams.posXKick = 0.0; swordHitParams.curveType = 'sin';
+        gui.controllersRecursive().forEach(c => c.updateDisplay());
+        applyParams();
+      }
+    }, 'resetDefaults').name('🔄 Reset Defaults');
+
+    // ─── FPS-style mouse look + WASD ───
+    let isLocked = false;
+    let yaw = 0, pitch = 0;
+    const moveState = { forward: false, backward: false, left: false, right: false };
+    const velocity = new THREE.Vector3();
+    const playerPos = new THREE.Vector3(0, 1.7, 2);
+
+    renderer.domElement.addEventListener('click', () => {
+      if (!isLocked) {
+        renderer.domElement.requestPointerLock();
+      }
+    });
+
+    // Attack: left-click while pointer is locked
+    renderer.domElement.addEventListener('mousedown', (e) => {
+      if (e.button === 0 && isLocked) triggerSwing();
+    });
+
+    document.addEventListener('pointerlockchange', () => {
+      isLocked = document.pointerLockElement === renderer.domElement;
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isLocked) return;
+      yaw -= e.movementX * 0.002;
+      pitch -= e.movementY * 0.002;
+      pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+    });
+
+    document.addEventListener('keydown', (e) => {
+      switch (e.code) {
+        case 'KeyW': moveState.forward = true; break;
+        case 'KeyS': moveState.backward = true; break;
+        case 'KeyA': moveState.left = true; break;
+        case 'KeyD': moveState.right = true; break;
+        case 'Space': triggerSwing(); break;
+      }
+    });
+
+    document.addEventListener('keyup', (e) => {
+      switch (e.code) {
+        case 'KeyW': moveState.forward = false; break;
+        case 'KeyS': moveState.backward = false; break;
+        case 'KeyA': moveState.left = false; break;
+        case 'KeyD': moveState.right = false; break;
+      }
+    });
+
+    // ─── Resize ───
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // ─── Render loop ───
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+
+      // Camera rotation
+      const euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
+      camera.quaternion.setFromEuler(euler);
+
+      // Movement
+      if (isLocked) {
+        const speed = 5;
+        const dir = new THREE.Vector3();
+        if (moveState.forward) dir.z -= 1;
+        if (moveState.backward) dir.z += 1;
+        if (moveState.left) dir.x -= 1;
+        if (moveState.right) dir.x += 1;
+        dir.normalize().multiplyScalar(speed * delta);
+        dir.applyEuler(new THREE.Euler(0, yaw, 0, 'YXZ'));
+        playerPos.add(dir);
+      }
+
+      camera.position.copy(playerPos);
+
+      // ─── Hitting animation ───
+      const activeHandGroup = activeHand === 'fist' ? fistHandGroup : swordHandGroup;
+      const activeHitParams = activeHand === 'fist' ? fistHitParams : swordHitParams;
+      
+      if (activeHandGroup && isSwinging) {
+        swingProgress -= delta * activeHitParams.swingSpeed;
+        if (swingProgress <= 0) {
+          swingProgress = 0;
+          isSwinging = false;
+        }
+        
+        const curve = (() => {
+          const t = swingProgress;
+          switch (activeHitParams.curveType) {
+            case 'sin':          return Math.sin(t * Math.PI);
+            case 'ease-out':     return 1 - Math.pow(1 - Math.sin(t * Math.PI * 0.5), 2);
+            case 'ease-in-out':  return 0.5 - 0.5 * Math.cos(t * Math.PI);
+            case 'linear':       return t;
+            default:             return Math.sin(t * Math.PI);
+          }
+        })();
+        
+        const baseRotX = activeHand === 'fist' ? handParams.fistRotX : handParams.swordRotX;
+        const baseRotY = activeHand === 'fist' ? handParams.fistRotY : handParams.swordRotY;
+        const baseRotZ = activeHand === 'fist' ? handParams.fistRotZ : handParams.swordRotZ;
+        const basePosX = activeHand === 'fist' ? handParams.fistPosX : handParams.swordPosX;
+        const basePosY = activeHand === 'fist' ? handParams.fistPosY : handParams.swordPosY;
+        const basePosZ = activeHand === 'fist' ? handParams.fistPosZ : handParams.swordPosZ;
+
+        activeHandGroup.rotation.set(
+          baseRotX - curve * activeHitParams.rotXIntensity,
+          baseRotY,
+          baseRotZ + curve * activeHitParams.rotZIntensity
+        );
+        activeHandGroup.position.set(
+          basePosX + curve * activeHitParams.posXKick,
+          basePosY + curve * activeHitParams.posYKick,
+          basePosZ
+        );
+      } else if (activeHandGroup) {
+        // Idle state
+        const baseRotX = activeHand === 'fist' ? handParams.fistRotX : handParams.swordRotX;
+        const baseRotY = activeHand === 'fist' ? handParams.fistRotY : handParams.swordRotY;
+        const baseRotZ = activeHand === 'fist' ? handParams.fistRotZ : handParams.swordRotZ;
+        const basePosX = activeHand === 'fist' ? handParams.fistPosX : handParams.swordPosX;
+        const basePosY = activeHand === 'fist' ? handParams.fistPosY : handParams.swordPosY;
+        const basePosZ = activeHand === 'fist' ? handParams.fistPosZ : handParams.swordPosZ;
+
+        // Only sword gets idle bob animation
+        if (activeHand === 'sword') {
+          const t = clock.elapsedTime;
+          activeHandGroup.position.set(
+            basePosX + Math.cos(t * 1.0) * 0.005,
+            basePosY + Math.sin(t * 2.0) * 0.008,
+            basePosZ
+          );
+        } else {
+          // Fist stays static
+          activeHandGroup.position.set(basePosX, basePosY, basePosZ);
+        }
+        
+        activeHandGroup.rotation.set(baseRotX, baseRotY, baseRotZ);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+</html>

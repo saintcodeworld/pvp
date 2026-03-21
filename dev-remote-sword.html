@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Remote Player Sword Configurator</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #1a1a1a; }
+    canvas { display: block; }
+    #info {
+      position: fixed; bottom: 15px; left: 15px; z-index: 10;
+      color: #aaa; font-family: monospace; font-size: 12px;
+      background: rgba(0,0,0,0.6); padding: 8px 12px; border-radius: 4px;
+      line-height: 1.6;
+    }
+    #info kbd { color: #f5a623; }
+  </style>
+</head>
+<body>
+  <div id="info">
+    <kbd>Drag</kbd> to orbit &nbsp;|&nbsp; <kbd>Scroll</kbd> to zoom<br>
+    Adjust sliders then click <kbd>📋 Copy to main.js</kbd> to get the code.
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/",
+      "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.19.2/dist/lil-gui.esm.min.js"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import GUI from 'lil-gui';
+
+    // ─── Scene ───
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x222222);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.position.set(1.5, 1.8, 2.5);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 1.0, 0);
+    controls.update();
+
+    // ─── Lighting ───
+    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+    dir.position.set(5, 10, 5);
+    scene.add(dir);
+    scene.add(new THREE.HemisphereLight(0x88ccff, 0x444422, 0.4));
+
+    // ─── Grid ───
+    scene.add(new THREE.GridHelper(10, 10, 0x555555, 0x333333));
+    scene.add(new THREE.AxesHelper(2));
+
+    // ─── Textures ───
+    function makePixelTex(r, g, b, variation = 8, size = 8) {
+      const canvas = document.createElement('canvas');
+      canvas.width = size; canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const v = (Math.random() - 0.5) * variation;
+          ctx.fillStyle = `rgb(${(r+v)|0},${(g+v)|0},${(b+v)|0})`;
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      return tex;
+    }
+
+    // ─── Build Steve Model ───
+    const px = 0.0625;
+    const playerGroup = new THREE.Group();
+
+    // Head
+    const head = new THREE.Mesh(
+      new THREE.BoxGeometry(8*px, 8*px, 8*px),
+      new THREE.MeshLambertMaterial({ map: makePixelTex(196, 152, 108) })
+    );
+    head.position.y = 1.5 + 4*px;
+    playerGroup.add(head);
+
+    // Eyes
+    const eyeGeo = new THREE.BoxGeometry(2*px, 2*px, 0.5*px);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
+    const le = new THREE.Mesh(eyeGeo, eyeMat);
+    le.position.set(-1.5*px, 1.5+5*px, 4.3*px);
+    playerGroup.add(le);
+    const re = new THREE.Mesh(eyeGeo, eyeMat);
+    re.position.set(1.5*px, 1.5+5*px, 4.3*px);
+    playerGroup.add(re);
+
+    // Body
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(8*px, 12*px, 4*px),
+      new THREE.MeshLambertMaterial({ map: makePixelTex(68, 130, 255) })
+    );
+    body.position.y = 0.75 + 6*px;
+    playerGroup.add(body);
+
+    // Arms
+    const armGeo = new THREE.BoxGeometry(4*px, 12*px, 4*px);
+    const armMat = new THREE.MeshLambertMaterial({ map: makePixelTex(55, 105, 200) });
+    const leftArm = new THREE.Mesh(armGeo, armMat);
+    leftArm.position.set(-6*px, 0.75+6*px, 0);
+    playerGroup.add(leftArm);
+    const rightArm = new THREE.Mesh(armGeo, armMat.clone());
+    rightArm.position.set(6*px, 0.75+6*px, 0);
+    playerGroup.add(rightArm);
+
+    // Legs
+    const legGeo = new THREE.BoxGeometry(4*px, 12*px, 4*px);
+    const legMat = new THREE.MeshLambertMaterial({ map: makePixelTex(50, 50, 80) });
+    const leftLeg = new THREE.Mesh(legGeo, legMat);
+    leftLeg.position.set(-2*px, 6*px, 0);
+    playerGroup.add(leftLeg);
+    const rightLeg = new THREE.Mesh(legGeo, legMat.clone());
+    rightLeg.position.set(2*px, 6*px, 0);
+    playerGroup.add(rightLeg);
+
+    scene.add(playerGroup);
+
+    // ─── Held Sword (the thing we're configuring) ───
+    const swordGroup = new THREE.Group();
+
+    // Sword position is relative to rightArm (child of rightArm)
+    const swordParams = {
+      posX: 0,
+      posY: -6 * px,
+      posZ: 3 * px,
+      rotX: 0.3,
+      rotY: 0,
+      rotZ: -0.2,
+      planeW: 0.55,
+      planeH: 0.70,
+    };
+
+    let swordPlane = null;
+
+    const swordImg = new Image();
+    swordImg.crossOrigin = 'anonymous';
+    swordImg.onload = () => {
+      const tex = new THREE.Texture(swordImg);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.needsUpdate = true;
+
+      const mat = new THREE.MeshBasicMaterial({
+        map: tex,
+        transparent: true,
+        alphaTest: 0.1,
+        side: THREE.DoubleSide,
+      });
+      swordPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(swordParams.planeW, swordParams.planeH),
+        mat
+      );
+      swordGroup.add(swordPlane);
+      applySwordParams();
+    };
+    swordImg.src = 'public/assets/Sprite-0001.png';
+
+    leftArm.add(swordGroup);
+
+    function applySwordParams() {
+      swordGroup.position.set(swordParams.posX, swordParams.posY, swordParams.posZ);
+      swordGroup.rotation.set(swordParams.rotX, swordParams.rotY, swordParams.rotZ);
+      if (swordPlane) {
+        swordPlane.geometry.dispose();
+        swordPlane.geometry = new THREE.PlaneGeometry(swordParams.planeW, swordParams.planeH);
+      }
+    }
+
+    // ─── Swing animation ───
+    let swingTime = 0;
+    let isSwinging = false;
+    let walkAnim = false;
+    let walkPhase = 0;
+
+    function triggerSwing() {
+      isSwinging = true;
+      swingTime = 0.5;
+    }
+
+    // ─── GUI ───
+    const gui = new GUI({ title: '⚔️ Remote Sword Config' });
+
+    const posFolder = gui.addFolder('Sword Position');
+    posFolder.add(swordParams, 'posX', -1, 1, 0.001).name('X').onChange(applySwordParams);
+    posFolder.add(swordParams, 'posY', -1, 2, 0.001).name('Y').onChange(applySwordParams);
+    posFolder.add(swordParams, 'posZ', -1, 1, 0.001).name('Z').onChange(applySwordParams);
+    posFolder.open();
+
+    const rotFolder = gui.addFolder('Sword Rotation');
+    rotFolder.add(swordParams, 'rotX', -Math.PI, Math.PI, 0.01).name('X').onChange(applySwordParams);
+    rotFolder.add(swordParams, 'rotY', -Math.PI, Math.PI, 0.01).name('Y').onChange(applySwordParams);
+    rotFolder.add(swordParams, 'rotZ', -Math.PI, Math.PI, 0.01).name('Z').onChange(applySwordParams);
+    rotFolder.open();
+
+    const sizeFolder = gui.addFolder('Sword Size');
+    sizeFolder.add(swordParams, 'planeW', 0.1, 2.0, 0.01).name('Width').onChange(applySwordParams);
+    sizeFolder.add(swordParams, 'planeH', 0.1, 2.0, 0.01).name('Height').onChange(applySwordParams);
+    sizeFolder.open();
+
+    const animFolder = gui.addFolder('Preview');
+    animFolder.add({ swing: triggerSwing }, 'swing').name('▶️ Test Swing');
+    animFolder.add({ walk: () => { walkAnim = !walkAnim; } }, 'walk').name('🚶 Toggle Walk');
+    animFolder.open();
+
+    gui.add({
+      copyCode() {
+        const code = [
+          '═══════════════════════════════════════',
+          '⚔️ REMOTE SWORD CONFIG — paste into main.js createRemotePlayer()',
+          '═══════════════════════════════════════',
+          '',
+          '  // ── HELD SWORD (child of leftArm so it swings with arm) ──',
+          `  const heldSword = createRemoteSwordSprite();`,
+          `  heldSword.position.set(${swordParams.posX.toFixed(4)}, ${swordParams.posY.toFixed(4)}, ${swordParams.posZ.toFixed(4)});`,
+          `  heldSword.rotation.set(${swordParams.rotX.toFixed(3)}, ${swordParams.rotY.toFixed(3)}, ${swordParams.rotZ.toFixed(3)});`,
+          `  heldSword.visible = (data.activeSlot === 1);`,
+          `  leftArm.add(heldSword);`,
+          '',
+          '// And in createRemoteSwordSprite(), change PlaneGeometry to:',
+          `  new THREE.PlaneGeometry(${swordParams.planeW.toFixed(3)}, ${swordParams.planeH.toFixed(3)})`,
+          '',
+          '═══════════════════════════════════════',
+        ].join('\n');
+        console.log(code);
+        // Also copy to clipboard
+        navigator.clipboard.writeText(code).then(() => {
+          alert('Copied to clipboard! Also logged to console.');
+        }).catch(() => {
+          alert('Logged to console (clipboard blocked). Open DevTools to see.');
+        });
+      }
+    }, 'copyCode').name('📋 Copy to main.js');
+
+    gui.add({
+      resetDefaults() {
+        swordParams.posX = 6 * px;
+        swordParams.posY = 0.75;
+        swordParams.posZ = 3 * px;
+        swordParams.rotX = 0.3;
+        swordParams.rotY = 0;
+        swordParams.rotZ = -0.2;
+        swordParams.planeW = 0.35;
+        swordParams.planeH = 0.45;
+        gui.controllersRecursive().forEach(c => c.updateDisplay());
+        applySwordParams();
+      }
+    }, 'resetDefaults').name('🔄 Reset Defaults');
+
+    // ─── Render loop ───
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      const time = clock.getElapsedTime();
+
+      // Walk animation
+      if (walkAnim) {
+        walkPhase += delta * 6;
+        const swing = Math.sin(walkPhase) * 0.6;
+        leftArm.rotation.x = swing;
+        rightArm.rotation.x = -swing;
+        leftLeg.rotation.x = -swing;
+        rightLeg.rotation.x = swing;
+      } else {
+        leftArm.rotation.x *= 0.9;
+        rightArm.rotation.x *= 0.9;
+        leftLeg.rotation.x *= 0.9;
+        rightLeg.rotation.x *= 0.9;
+      }
+
+      // Swing animation (positive X = forward swing)
+      if (isSwinging && swingTime > 0) {
+        swingTime -= delta * 2;
+        const curve = Math.sin(swingTime * Math.PI * 2) * 1.2;
+        leftArm.rotation.x = curve;
+        if (swingTime <= 0) {
+          swingTime = 0;
+          isSwinging = false;
+        }
+      }
+
+      // Slow idle rotation for better viewing
+      if (!controls.enabled) {
+        playerGroup.rotation.y += delta * 0.3;
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // ─── Resize ───
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

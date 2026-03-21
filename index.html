@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chuck Norris Memorial Museum</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+    canvas { display: block; }
+
+    #blocker {
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,0.85);
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; cursor: pointer;
+    }
+    #blocker h1 {
+      font-size: 3rem; color: #f5a623; text-transform: uppercase;
+      text-shadow: 3px 3px 0 #000; letter-spacing: 4px; margin-bottom: 10px;
+      font-family: 'Courier New', monospace;
+    }
+    #blocker h2 {
+      font-size: 1.2rem; color: #ccc; margin-bottom: 30px;
+      font-family: 'Courier New', monospace;
+    }
+    #blocker .subtitle {
+      font-size: 1rem; color: #f5a623; margin-bottom: 40px;
+      animation: pulse 2s infinite;
+    }
+    #blocker .controls {
+      color: #aaa; font-size: 0.85rem; line-height: 2;
+      text-align: center; background: rgba(0,0,0,0.5);
+      padding: 20px 40px; border: 1px solid #333; border-radius: 4px;
+    }
+    #blocker .controls span { color: #f5a623; font-weight: bold; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    #crosshair {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 20px; height: 20px; z-index: 50;
+      pointer-events: none; display: none;
+    }
+    #crosshair::before, #crosshair::after {
+      content: ''; position: absolute; background: rgba(255,255,255,0.7);
+    }
+    #crosshair::before { width: 2px; height: 20px; left: 9px; top: 0; }
+    #crosshair::after { width: 20px; height: 2px; top: 9px; left: 0; }
+
+    #hud {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      z-index: 50; display: none; pointer-events: none;
+    }
+    #hud .hotbar {
+      display: flex; gap: 2px; background: rgba(0,0,0,0.6);
+      padding: 4px; border: 2px solid #555; border-radius: 2px;
+    }
+    #hud .hotbar-slot {
+      width: 44px; height: 44px; background: rgba(50,50,50,0.8);
+      border: 2px solid #333; display: flex; align-items: center;
+      justify-content: center; font-size: 1.4rem;
+    }
+    #hud .hotbar-slot.active { border-color: #fff; }
+
+    #interact-prompt {
+      position: fixed; top: 60%; left: 50%; transform: translateX(-50%);
+      z-index: 50; display: none; color: #fff;
+      font-size: 1rem; background: rgba(0,0,0,0.7);
+      padding: 8px 16px; border-radius: 4px;
+      pointer-events: none;
+    }
+
+    #exhibit-panel {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 60; display: none;
+      background: rgba(20,15,10,0.95);
+      border: 3px solid #f5a623;
+      padding: 30px 40px; max-width: 600px; width: 90%;
+      color: #eee; border-radius: 4px;
+      max-height: 70vh; overflow-y: auto;
+    }
+    #exhibit-panel h3 {
+      color: #f5a623; font-size: 1.4rem;
+      margin-bottom: 12px; text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+    #exhibit-panel p { line-height: 1.7; font-size: 0.9rem; margin-bottom: 10px; }
+    #exhibit-panel .close-hint {
+      margin-top: 15px; color: #888; font-size: 0.8rem; text-align: center;
+    }
+
+    #minimap {
+      position: fixed; top: 15px; right: 15px; z-index: 50;
+      width: 140px; height: 140px; background: rgba(0,0,0,0.7);
+      border: 2px solid #555; display: none;
+    }
+    #minimap canvas { width: 100%; height: 100%; }
+
+    #social-bar {
+      position: fixed; top: 15px; left: 15px; z-index: 50;
+      display: none; flex-direction: column; gap: 8px;
+    }
+    .social-btn {
+      width: 36px; height: 36px; border-radius: 4px;
+      border: none; cursor: pointer; font-size: 1rem;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: all; opacity: 0.7; transition: opacity 0.2s;
+    }
+    .social-btn:hover { opacity: 1; }
+    .social-btn.twitter { background: #1da1f2; color: #fff; }
+    .social-btn.facebook { background: #4267B2; color: #fff; }
+    .social-btn.share { background: #25D366; color: #fff; }
+
+    #loading {
+      position: fixed; inset: 0; z-index: 200;
+      background: #111; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; color: #f5a623;
+    }
+    #loading .bar-bg {
+      width: 300px; height: 12px; background: #333;
+      border: 1px solid #555; margin-top: 20px;
+    }
+    #loading .bar-fg { height: 100%; background: #f5a623; width: 0%; transition: width 0.3s; }
+    #loading p { margin-top: 10px; color: #888; font-size: 0.8rem; }
+
+    /* ─── MULTIPLAYER UI ─── */
+    #name-overlay {
+      position: fixed; inset: 0; z-index: 300;
+      background: rgba(0,0,0,0.92);
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column;
+    }
+    #name-overlay h1 {
+      font-size: 2.2rem; color: #f5a623; text-transform: uppercase;
+      letter-spacing: 4px; margin-bottom: 6px;
+      font-family: 'Courier New', monospace;
+    }
+    #name-overlay h2 {
+      font-size: 1rem; color: #888; margin-bottom: 28px;
+      font-family: 'Courier New', monospace;
+    }
+    #name-overlay input {
+      font-family: 'Courier New', monospace;
+      font-size: 1.2rem; padding: 10px 20px;
+      background: #222; border: 2px solid #f5a623; color: #fff;
+      text-align: center; width: 260px; border-radius: 4px;
+      outline: none;
+    }
+    #name-overlay input::placeholder { color: #666; }
+    #name-overlay button {
+      margin-top: 16px; padding: 10px 36px;
+      background: #f5a623; color: #111; border: none;
+      font-family: 'Courier New', monospace;
+      font-size: 1rem; font-weight: bold; cursor: pointer;
+      text-transform: uppercase; letter-spacing: 2px;
+      border-radius: 4px; transition: background 0.2s;
+    }
+    #name-overlay button:hover { background: #ffc040; }
+    #name-overlay .note {
+      margin-top: 14px; color: #555; font-size: 0.75rem;
+    }
+
+    #player-count {
+      position: fixed; top: 15px; left: 50%; transform: translateX(-50%);
+      z-index: 50; display: none; color: #f5a623;
+      font-size: 0.8rem; background: rgba(0,0,0,0.6);
+      padding: 4px 14px; border-radius: 4px;
+      pointer-events: none;
+    }
+
+    #chat-box {
+      position: fixed; bottom: 80px; left: 15px; z-index: 55;
+      width: 320px; display: none; flex-direction: column;
+      pointer-events: none;
+    }
+    #chat-messages {
+      max-height: 160px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 2px;
+      margin-bottom: 4px; pointer-events: none;
+    }
+    .chat-msg {
+      background: rgba(0,0,0,0.6); color: #eee;
+      padding: 3px 8px; border-radius: 3px;
+      font-size: 0.78rem; word-break: break-word;
+      animation: chatFade 10s forwards;
+    }
+    .chat-msg .chat-name { color: #f5a623; font-weight: bold; }
+    .chat-msg.system { color: #888; font-style: italic; }
+    @keyframes chatFade {
+      0%, 70% { opacity: 1; }
+      100% { opacity: 0.3; }
+    }
+    #chat-input-wrap {
+      display: none; pointer-events: all;
+    }
+    #chat-input {
+      width: 100%; padding: 6px 10px;
+      background: rgba(0,0,0,0.8); border: 1px solid #555;
+      color: #fff; font-family: 'Courier New', monospace;
+      font-size: 0.8rem; border-radius: 3px; outline: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <h1 style="font-family:'Courier New',monospace;font-size:1.5rem;">LOADING MUSEUM...</h1>
+    <div class="bar-bg"><div class="bar-fg" id="load-bar"></div></div>
+    <p id="load-text">Initializing voxel engine...</p>
+  </div>
+
+  <div id="blocker">
+    <h1>🏛️ Chuck Norris</h1>
+    <h2>Memorial Museum</h2>
+    <div class="subtitle">[ Click to Enter ]</div>
+    <div class="controls">
+      <span>W A S D</span> — Move &nbsp;|&nbsp;
+      <span>MOUSE</span> — Look Around<br>
+      <span>SPACE</span> — Jump &nbsp;|&nbsp;
+      <span>E</span> — Interact with Exhibits<br>
+      <span>ESC</span> — Pause &nbsp;|&nbsp;
+      <span>M</span> — Toggle Minimap<br>
+      <span>1-9</span> — Switch Hotbar Slot<br>
+      <span>T</span> — Chat
+    </div>
+  </div>
+
+  <div id="crosshair"></div>
+
+  <div id="hud">
+    <div class="hotbar">
+      <div class="hotbar-slot active">✊</div>
+      <div class="hotbar-slot"><img src="public/sword-icon.svg" style="width: 32px; height: 32px;"></div>
+      <div class="hotbar-slot"></div>
+      <div class="hotbar-slot"></div>
+      <div class="hotbar-slot"></div>
+      <div class="hotbar-slot"></div>
+      <div class="hotbar-slot"></div>
+      <div class="hotbar-slot"></div>
+      <div class="hotbar-slot"></div>
+    </div>
+  </div>
+
+  <div id="interact-prompt">Press <strong>E</strong> to interact</div>
+
+  <div id="exhibit-panel">
+    <h3 id="exhibit-title"></h3>
+    <div id="exhibit-body"></div>
+    <div class="close-hint">Press E or ESC to close</div>
+  </div>
+
+  <div id="minimap"><canvas id="minimap-canvas" width="140" height="140"></canvas></div>
+
+  <div id="social-bar">
+    <button class="social-btn twitter" onclick="shareTo('twitter')">𝕏</button>
+    <button class="social-btn facebook" onclick="shareTo('facebook')">f</button>
+    <button class="social-btn share" onclick="shareTo('clipboard')">🔗</button>
+  </div>
+
+  <div id="name-overlay">
+    <h1>🏛️ Muzzeum</h1>
+    <h2>Multiplayer Museum</h2>
+    <input type="text" id="name-input" placeholder="Enter your name..." maxlength="20" autocomplete="off">
+    <button id="name-submit">Enter Museum</button>
+    <div class="note">Press ENTER or click the button</div>
+  </div>
+
+  <div id="player-count">Players Online: 1</div>
+
+  <div id="chat-box">
+    <div id="chat-messages"></div>
+    <div id="chat-input-wrap">
+      <input type="text" id="chat-input" placeholder="Type a message..." maxlength="200" autocomplete="off">
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
