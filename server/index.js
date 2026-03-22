@@ -28,20 +28,19 @@ const server = http.createServer((req, res) => {
   let filePath = req.url === '/' ? '/index.html' : req.url;
   filePath = filePath.split('?')[0];
 
-  // Try dist/ first (built Vite output), then root
-  const projectRoot = path.join(__dirname, '..');
-  const distPath = path.join(projectRoot, 'dist', filePath);
-  const rootPath = path.join(projectRoot, filePath);
+  // In production, files are in dist/ folder. In dev, they're in root.
+  const isProduction = process.env.NODE_ENV === 'production';
+  const basePath = isProduction ? path.join(__dirname, '..', 'dist') : path.join(__dirname, '..');
+  const fullPath = path.join(basePath, filePath);
+  const ext = path.extname(fullPath);
 
-  const tryPath = fs.existsSync(distPath) ? distPath : rootPath;
-  const ext = path.extname(tryPath);
-
-  fs.readFile(tryPath, (err, data) => {
+  fs.readFile(fullPath, (err, data) => {
     if (err) {
-      // SPA fallback
-      const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
+      // SPA fallback - serve index.html for all routes
+      const indexPath = path.join(basePath, 'index.html');
       fs.readFile(indexPath, (err2, data2) => {
         if (err2) {
+          console.error(`File not found: ${fullPath}`);
           res.writeHead(404, { 'Content-Type': 'text/plain' });
           res.end('Not Found');
           return;
