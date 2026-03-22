@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 import { setupMuseumRoom } from './museum-room.js';
 import { setupLobbyManager } from './lobby-manager.js';
 import { setupCombatManager } from './combat-manager.js';
+import { setupFFAManager } from './ffa-manager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,6 +63,38 @@ const wss = new WebSocketServer({ server });
 const players = new Map(); // id -> { ws, state, room: 'museum'|'lobby'|'arena' }
 let nextId = 1;
 
+// ─── ROOM INDEX — O(1) room lookups instead of O(n) iteration ────────
+const roomIndex = {
+  museum: new Set(),
+  lobby: new Set(),
+  arena: new Set(),
+  ffa_queue: new Set(),
+  ffa_arena: new Set(),
+};
+
+function changeRoom(playerId, newRoom) {
+  const player = players.get(playerId);
+  if (!player) return;
+  const oldRoom = player.room;
+  if (oldRoom === newRoom) return;
+  if (roomIndex[oldRoom]) roomIndex[oldRoom].delete(playerId);
+  player.room = newRoom;
+  if (roomIndex[newRoom]) roomIndex[newRoom].add(playerId);
+}
+
+function getMuseumPlayers() {
+  const result = [];
+  roomIndex.museum.forEach(id => {
+    const p = players.get(id);
+    if (p) result.push(p.state);
+  });
+  return result;
+}
+
+// ─── RATE LIMITING — max 25 messages/sec per client ──────────────────
+const RATE_LIMIT_WINDOW = 1000; // 1 second
+const RATE_LIMIT_MAX = 25;
+
 function randomPlayerColor() {
   const colors = [
     '#ff4444', '#44ff44', '#4488ff', '#ffaa00', '#ff44ff',
@@ -73,9 +106,14 @@ function randomPlayerColor() {
 
 function broadcastToRoom(room, msg, excludeId = null) {
   const data = JSON.stringify(msg);
-  players.forEach((player, id) => {
-    if (player.room === room && id !== excludeId && player.ws.readyState === 1) {
-      player.ws.send(data);
+  const ids = roomIndex[room];
+  if (!ids) return;
+  ids.forEach(id => {
+    if (id !== excludeId) {
+      const player = players.get(id);
+      if (player && player.ws.readyState === 1) {
+        player.ws.send(data);
+      }
     }
   });
 }
@@ -89,8 +127,9 @@ function sendTo(playerId, msg) {
 
 // Initialize sub-managers
 const museumRoom = setupMuseumRoom(players, broadcastToRoom, sendTo);
-const lobbyManager = setupLobbyManager(players, broadcastToRoom, sendTo);
-const combatManager = setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager);
+const lobbyManager = setupLobbyManager(players, broadcastToRoom, sendTo, changeRoom, getMuseumPlayers);
+const combatManager = setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, changeRoom, getMuseumPlayers);
+const ffaManager = setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseumPlayers);
 
 // ─── WEBSOCKET HEARTBEAT (ping/pong to detect dead connections) ─────
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
@@ -131,15 +170,13 @@ wss.on('connection', (ws) => {
     ws,
     state: playerState,
     room: 'museum',
+    msgCount: 0,
+    msgWindowStart: Date.now(),
   });
+  roomIndex.museum.add(playerId);
 
   // Send init with all museum players
-  const museumPlayers = [];
-  players.forEach((p, id) => {
-    if (p.room === 'museum') {
-      museumPlayers.push(p.state);
-    }
-  });
+  const museumPlayers = getMuseumPlayers();
 
   ws.send(JSON.stringify({
     type: 'init',
@@ -162,6 +199,15 @@ wss.on('connection', (ws) => {
       const player = players.get(playerId);
       if (!player) return;
 
+      // Rate limiting
+      const now = Date.now();
+      if (now - player.msgWindowStart > RATE_LIMIT_WINDOW) {
+        player.msgCount = 0;
+        player.msgWindowStart = now;
+      }
+      player.msgCount++;
+      if (player.msgCount > RATE_LIMIT_MAX) return;
+
       // Route message based on player's current room
       switch (player.room) {
         case 'museum':
@@ -173,11 +219,25 @@ wss.on('connection', (ws) => {
         case 'arena':
           combatManager.handleMessage(playerId, msg);
           break;
+        case 'ffa_queue':
+          ffaManager.handleMessage(playerId, msg);
+          break;
+        case 'ffa_arena':
+          ffaManager.handleMessage(playerId, msg);
+          break;
       }
 
       // Lobby transition messages (must work from museum room)
       if ((msg.type === 'enter_lobby_area' || msg.type === 'leave_lobby_area') && player.room !== 'lobby') {
         lobbyManager.handleMessage(playerId, msg);
+      }
+
+      // FFA queue messages (from museum)
+      if (msg.type === 'ffa_join_queue' && player.room === 'museum') {
+        ffaManager.handleMessage(playerId, msg);
+      }
+      if (msg.type === 'ffa_leave_queue' && player.room === 'ffa_queue') {
+        ffaManager.handleMessage(playerId, msg);
       }
 
       // Global messages (work in any room)
@@ -193,11 +253,13 @@ wss.on('connection', (ws) => {
         case 'resync': {
           // Client returned from hidden tab — send fresh player list
           const roomPlayers = [];
-          players.forEach((p) => {
-            if (p.room === player.room) {
-              roomPlayers.push(p.state);
-            }
-          });
+          const ids = roomIndex[player.room];
+          if (ids) {
+            ids.forEach(id => {
+              const p = players.get(id);
+              if (p) roomPlayers.push(p.state);
+            });
+          }
           if (ws.readyState === 1) {
             ws.send(JSON.stringify({
               type: 'resync',
@@ -218,15 +280,32 @@ wss.on('connection', (ws) => {
         }
 
         case 'game_ready': {
-          // Both players confirmed arena loaded — start the match
+          // Players confirmed arena loaded — start the match
           const lobbyId = msg.lobbyId;
           const lobby = lobbyManager.lobbies.get(lobbyId);
           if (lobby && lobby.status === 'in_game') {
-            // Only create match once (when second player reports ready)
-            if (!lobby.matchCreated) {
+            if (!lobby.readyCount) lobby.readyCount = 0;
+            lobby.readyCount++;
+            // Start when all players are ready
+            if (!lobby.matchCreated && lobby.readyCount >= lobby.maxPlayers) {
               lobby.matchCreated = true;
-              combatManager.createMatch(lobbyId, lobby.creatorId, lobby.guestId);
+              if (lobby.mode === '2v2') {
+                combatManager.createMatch2v2(lobbyId, lobby.players);
+              } else {
+                combatManager.createMatch(lobbyId, lobby.players[0].id, lobby.players[1].id);
+              }
             }
+          }
+          break;
+        }
+
+        case 'voice_offer':
+        case 'voice_answer':
+        case 'voice_ice': {
+          // WebRTC signaling relay
+          const targetId = msg.targetId;
+          if (targetId && players.has(targetId)) {
+            sendTo(targetId, { ...msg, fromId: playerId });
           }
           break;
         }
@@ -246,17 +325,24 @@ wss.on('connection', (ws) => {
       if (player.room === 'lobby') {
         lobbyManager.handleDisconnect(playerId);
       }
+      if (player.room === 'ffa_queue' || player.room === 'ffa_arena') {
+        ffaManager.handleDisconnect(playerId);
+      }
 
       broadcastToRoom(player.room, {
         type: 'player_leave',
         id: playerId,
       });
+      // Remove from room index
+      if (roomIndex[player.room]) roomIndex[player.room].delete(playerId);
     }
     players.delete(playerId);
     console.log(`Player ${playerId} disconnected (${players.size} online)`);
   });
 
   ws.on('error', () => {
+    const player = players.get(playerId);
+    if (player && roomIndex[player.room]) roomIndex[player.room].delete(playerId);
     players.delete(playerId);
   });
 });

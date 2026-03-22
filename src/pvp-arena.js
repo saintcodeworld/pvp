@@ -7,30 +7,31 @@ let inArena = false;
 let arenaGroup = null;
 let scene = null;
 let matchId = null;
-let opponentId = null;
-let opponentName = '';
-let myRole = ''; // 'creator' or 'guest'
+let matchMode = '1v1'; // '1v1' or '2v2'
+let myTeam = 1;
+let myRole = '';
 let onMatchEnd = null;
 
-// Combat state (from server)
+// All other players in the arena (opponents + teammates in 2v2)
+const arenaPlayers = new Map(); // playerId -> { name, team, model, targetPos, targetYaw, swingTime, walkPhase }
 let myHp = 100;
-let opponentHp = 100;
 let currentRound = 1;
-let myRoundWins = 0;
-let opponentRoundWins = 0;
-let phase = 'waiting'; // waiting | countdown | fighting | round_end | match_end
+let myTeamWins = 0;
+let enemyTeamWins = 0;
+let phase = 'waiting';
 let countdownValue = 5;
-let matchResult = null; // { winnerId, loserId, winnerName, loserName }
+let matchResult = null;
 
-// Opponent 3D model in arena
-let opponentModel = null;
-let opponentTargetPos = new THREE.Vector3();
-let opponentTargetYaw = 0;
-let opponentSwingTime = 0;
-let opponentWalkPhase = 0;
+// Legacy 1v1 convenience accessors
+function getOpponentId() {
+  for (const [pid, data] of arenaPlayers) {
+    if (data.team !== myTeam) return pid;
+  }
+  return null;
+}
 
 // Hearts
-const heartMeshes = new Map(); // heartId -> THREE.Mesh
+const heartMeshes = new Map();
 
 export function isInArena() { return inArena; }
 export function getArenaPhase() { return phase; }
@@ -91,129 +92,51 @@ function buildArena() {
   scene.add(arenaGroup);
 }
 
-// ─── OPPONENT MODEL ─────────────────────────────────────────────────
-function createOpponentModel(color) {
-  if (opponentModel) {
-    arenaGroup.remove(opponentModel.group);
-  }
-
-  const group = new THREE.Group();
-  const px = 0.0625;
-  const rgb = { r: 255, g: 68, b: 68 }; // default red
-
-  // Head
-  const headGeo = new THREE.BoxGeometry(8 * px, 8 * px, 8 * px);
-  const headMat = new THREE.MeshLambertMaterial({ color: 0xc4986c });
-  const head = new THREE.Mesh(headGeo, headMat);
-  head.position.y = 1.5 + 4 * px;
-  group.add(head);
-
-  // Eyes
-  const eyeGeo = new THREE.BoxGeometry(2 * px, 2 * px, 0.5 * px);
-  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
-  const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-  leftEye.position.set(-1.5 * px, 1.5 + 5 * px, 4.3 * px);
-  group.add(leftEye);
-  const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-  rightEye.position.set(1.5 * px, 1.5 + 5 * px, 4.3 * px);
-  group.add(rightEye);
-
-  // Body
-  const bodyGeo = new THREE.BoxGeometry(8 * px, 12 * px, 4 * px);
-  const bodyMat = new THREE.MeshLambertMaterial({ color: 0xff4444 });
-  const body = new THREE.Mesh(bodyGeo, bodyMat);
-  body.position.y = 0.75 + 6 * px;
-  group.add(body);
-
-  // Arms
-  const armGeo = new THREE.BoxGeometry(4 * px, 12 * px, 4 * px);
-  const armMat = new THREE.MeshLambertMaterial({ color: 0xcc3333 });
-  const leftArm = new THREE.Mesh(armGeo, armMat);
-  leftArm.position.set(-6 * px, 0.75 + 6 * px, 0);
-  group.add(leftArm);
-  const rightArm = new THREE.Mesh(armGeo, armMat.clone());
-  rightArm.position.set(6 * px, 0.75 + 6 * px, 0);
-  group.add(rightArm);
-
-  // Sword on left arm
-  const swordGroup = new THREE.Group();
-  const swordImg = new Image();
-  swordImg.crossOrigin = 'anonymous';
-  swordImg.onload = () => {
-    const tex = new THREE.Texture(swordImg);
-    tex.magFilter = THREE.NearestFilter;
-    tex.minFilter = THREE.NearestFilter;
-    tex.needsUpdate = true;
-    const swordMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
-    const swordPlane = new THREE.Mesh(new THREE.PlaneGeometry(1.14, 1.63), swordMat);
-    swordGroup.add(swordPlane);
-  };
-  swordImg.src = 'assets/Sprite-0001.png';
-  swordGroup.position.set(-0.082, -0.176, 0.287);
-  swordGroup.rotation.set(0.21, 1.06, -0.2);
-  leftArm.add(swordGroup);
-
-  // Legs
-  const legGeo = new THREE.BoxGeometry(4 * px, 12 * px, 4 * px);
-  const legMat = new THREE.MeshLambertMaterial({ color: 0x333350 });
-  const leftLeg = new THREE.Mesh(legGeo, legMat);
-  leftLeg.position.set(-2 * px, 6 * px, 0);
-  group.add(leftLeg);
-  const rightLeg = new THREE.Mesh(legGeo, legMat.clone());
-  rightLeg.position.set(2 * px, 6 * px, 0);
-  group.add(rightLeg);
-
-  // Name label
-  const canvas = document.createElement('canvas');
-  canvas.width = 256; canvas.height = 48;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.fillRect(0, 8, 256, 32);
-  ctx.fillStyle = '#ff4444';
-  ctx.font = 'bold 22px Courier New';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(opponentName, 128, 24);
-  const labelTex = new THREE.CanvasTexture(canvas);
-  labelTex.magFilter = THREE.NearestFilter;
-  const labelGeo = new THREE.PlaneGeometry(1.6, 0.3);
-  const labelMeshMat = new THREE.MeshBasicMaterial({ map: labelTex, transparent: true, depthTest: false });
-  const nameLabel = new THREE.Mesh(labelGeo, labelMeshMat);
-  nameLabel.position.set(0, 2.2, 0);
-  nameLabel.renderOrder = 999;
-  group.add(nameLabel);
-
-  opponentModel = { group, head, body, leftArm, rightArm, leftLeg, rightLeg, nameLabel, swordGroup };
-  arenaGroup.add(group);
-}
-
 // ─── ENTER / EXIT ARENA ─────────────────────────────────────────────
 export function enterArena(gameData, matchEndCallback) {
   matchId = gameData.lobbyId;
-  opponentName = gameData.opponentName;
-  opponentId = gameData.opponentId;
+  matchMode = gameData.mode || '1v1';
   myRole = gameData.role;
+  myTeam = gameData.team || (myRole === 'creator' ? 1 : 2);
   onMatchEnd = matchEndCallback;
   inArena = true;
   phase = 'waiting';
   myHp = 100;
-  opponentHp = 100;
   currentRound = 1;
-  myRoundWins = 0;
-  opponentRoundWins = 0;
+  myTeamWins = 0;
+  enemyTeamWins = 0;
   matchResult = null;
   heartMeshes.clear();
+  arenaPlayers.clear();
 
   buildArena();
   arenaGroup.visible = true;
-  createOpponentModel();
 
-  // Show combat HUD
+  // Create models for all other players
+  if (matchMode === '2v2' && gameData.allPlayers) {
+    gameData.allPlayers.forEach(p => {
+      // Skip self — we figure out self by matching role or checking allPlayers
+      // The server doesn't send a specific "myId" but we can infer from teammate/enemies
+      const isSelf = (myRole === 'creator' && p.id === gameData.allPlayers.find(x => x.team === myTeam && gameData.role === 'creator')?.id) ||
+                     (p.name === gameData.teammateName && p.team === myTeam && false); // complex — use simpler approach
+      // Actually, identify self: creator role => first team member, or check via enemies list
+      if (gameData.enemies && gameData.enemies.some(e => e.id === p.id)) {
+        createArenaPlayerModel(p.id, p.name, p.team);
+      } else if (gameData.teammateId === p.id) {
+        createArenaPlayerModel(p.id, p.name, p.team);
+      }
+    });
+  } else {
+    // 1v1 — single opponent
+    if (gameData.opponentId) {
+      createArenaPlayerModel(gameData.opponentId, gameData.opponentName, myTeam === 1 ? 2 : 1);
+    }
+  }
+
   showCombatHUD();
   updateHPBars();
   updateRoundDisplay();
 
-  // Tell server we're ready
   if (ws && ws.readyState === 1) {
     ws.send(JSON.stringify({ type: 'game_ready', lobbyId: matchId }));
   }
@@ -224,24 +147,104 @@ export function exitArena() {
   phase = 'waiting';
   if (arenaGroup) arenaGroup.visible = false;
 
-  // Remove hearts
-  heartMeshes.forEach(mesh => {
-    arenaGroup.remove(mesh);
-  });
+  heartMeshes.forEach(mesh => { arenaGroup.remove(mesh); });
   heartMeshes.clear();
 
-  // Remove opponent model
-  if (opponentModel) {
-    arenaGroup.remove(opponentModel.group);
-    opponentModel = null;
-  }
+  arenaPlayers.forEach((data) => {
+    if (data.model) arenaGroup.remove(data.model.group);
+  });
+  arenaPlayers.clear();
 
   hideCombatHUD();
 }
 
+function createArenaPlayerModel(playerId, name, team) {
+  const group = new THREE.Group();
+  const px = 0.0625;
+  const bodyColor = team === myTeam ? 0x4488ff : 0xff4444; // blue = ally, red = enemy
+
+  const headGeo = new THREE.BoxGeometry(8*px, 8*px, 8*px);
+  const headMat = new THREE.MeshLambertMaterial({ color: 0xc4986c });
+  const head = new THREE.Mesh(headGeo, headMat);
+  head.position.y = 1.5 + 4*px;
+  group.add(head);
+
+  const eyeGeo = new THREE.BoxGeometry(2*px, 2*px, 0.5*px);
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
+  const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
+  leftEye.position.set(-1.5*px, 1.5+5*px, 4.3*px);
+  group.add(leftEye);
+  const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
+  rightEye.position.set(1.5*px, 1.5+5*px, 4.3*px);
+  group.add(rightEye);
+
+  const bodyGeo = new THREE.BoxGeometry(8*px, 12*px, 4*px);
+  const bodyMeshMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+  const body = new THREE.Mesh(bodyGeo, bodyMeshMat);
+  body.position.y = 0.75 + 6*px;
+  group.add(body);
+
+  const armGeo = new THREE.BoxGeometry(4*px, 12*px, 4*px);
+  const armMat = new THREE.MeshLambertMaterial({ color: bodyColor });
+  const leftArm = new THREE.Mesh(armGeo, armMat);
+  leftArm.position.set(-6*px, 0.75+6*px, 0);
+  group.add(leftArm);
+  const rightArm = new THREE.Mesh(armGeo, armMat.clone());
+  rightArm.position.set(6*px, 0.75+6*px, 0);
+  group.add(rightArm);
+
+  const swordGroup = new THREE.Group();
+  const swordImg = new Image();
+  swordImg.crossOrigin = 'anonymous';
+  swordImg.onload = () => {
+    const tex = new THREE.Texture(swordImg);
+    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.needsUpdate = true;
+    const sMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
+    swordGroup.add(new THREE.Mesh(new THREE.PlaneGeometry(1.14, 1.63), sMat));
+  };
+  swordImg.src = 'assets/Sprite-0001.png';
+  swordGroup.position.set(-0.082, -0.176, 0.287);
+  swordGroup.rotation.set(0.21, 1.06, -0.2);
+  leftArm.add(swordGroup);
+
+  const legGeo = new THREE.BoxGeometry(4*px, 12*px, 4*px);
+  const legMat = new THREE.MeshLambertMaterial({ color: 0x333350 });
+  const leftLeg = new THREE.Mesh(legGeo, legMat);
+  leftLeg.position.set(-2*px, 6*px, 0);
+  group.add(leftLeg);
+  const rightLeg = new THREE.Mesh(legGeo, legMat.clone());
+  rightLeg.position.set(2*px, 6*px, 0);
+  group.add(rightLeg);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 48;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 8, 256, 32);
+  ctx.fillStyle = team === myTeam ? '#4488ff' : '#ff4444';
+  ctx.font = 'bold 22px Courier New';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(name, 128, 24);
+  const labelTex = new THREE.CanvasTexture(canvas);
+  labelTex.magFilter = THREE.NearestFilter;
+  const labelGeo = new THREE.PlaneGeometry(1.6, 0.3);
+  const labelMeshMat = new THREE.MeshBasicMaterial({ map: labelTex, transparent: true, depthTest: false });
+  const nameLabel = new THREE.Mesh(labelGeo, labelMeshMat);
+  nameLabel.position.set(0, 2.2, 0); nameLabel.renderOrder = 999;
+  group.add(nameLabel);
+
+  const model = { group, head, body, leftArm, rightArm, leftLeg, rightLeg, nameLabel, swordGroup };
+  arenaGroup.add(group);
+
+  arenaPlayers.set(playerId, {
+    name, team, model, hp: 100,
+    targetPos: new THREE.Vector3(),
+    targetYaw: 0, swingTime: 0, walkPhase: 0,
+  });
+}
+
 // ─── SPAWN POSITIONS ────────────────────────────────────────────────
 export function getSpawnPosition(side) {
-  // left side = creator, right side = guest (scaled for 30x30 arena)
   if (side === 'left') return new THREE.Vector3(-10, 1.7, 0);
   return new THREE.Vector3(10, 1.7, 0);
 }
@@ -251,15 +254,22 @@ export function handleArenaMessage(msg) {
   switch (msg.type) {
     case 'arena_setup': {
       matchId = msg.matchId;
+      matchMode = msg.mode || '1v1';
       currentRound = msg.round;
+      myTeam = msg.team || myTeam;
       const spawnPos = getSpawnPosition(msg.spawnSide);
       playerPos.set(spawnPos.x, spawnPos.y, spawnPos.z);
-      // Set opponent position on other side
-      const oppSide = msg.spawnSide === 'left' ? 'right' : 'left';
-      const oppSpawn = getSpawnPosition(oppSide);
-      opponentTargetPos.set(oppSpawn.x, oppSpawn.y - 1.7, oppSpawn.z);
-      if (opponentModel) {
-        opponentModel.group.position.copy(opponentTargetPos);
+      // Set other players positions
+      if (msg.otherPlayerIds) {
+        msg.otherPlayerIds.forEach(pid => {
+          const pd = arenaPlayers.get(pid);
+          if (pd) {
+            const oppSide = pd.team === myTeam ? msg.spawnSide : (msg.spawnSide === 'left' ? 'right' : 'left');
+            const oppSpawn = getSpawnPosition(oppSide);
+            pd.targetPos.set(oppSpawn.x, oppSpawn.y - 1.7, oppSpawn.z);
+            if (pd.model) pd.model.group.position.copy(pd.targetPos);
+          }
+        });
       }
       updateRoundDisplay();
       break;
@@ -281,25 +291,33 @@ export function handleArenaMessage(msg) {
     }
 
     case 'player_update': {
-      if (msg.id === opponentId && opponentModel) {
-        opponentTargetPos.set(msg.x, (msg.y || 1.7) - 1.7, msg.z);
-        opponentTargetYaw = msg.yaw;
+      const pd = arenaPlayers.get(msg.id);
+      if (pd) {
+        pd.targetPos.set(msg.x, (msg.y || 1.7) - 1.7, msg.z);
+        pd.targetYaw = msg.yaw;
       }
       break;
     }
 
     case 'player_swing': {
-      if (msg.id === opponentId) {
-        opponentSwingTime = 0.5;
-      }
+      const pd2 = arenaPlayers.get(msg.id);
+      if (pd2) pd2.swingTime = 0.5;
+      break;
+    }
+
+    case 'player_eliminated': {
+      const pd3 = arenaPlayers.get(msg.playerId);
+      if (pd3 && pd3.model) pd3.model.group.visible = false;
       break;
     }
 
     case 'hit': {
-      if (msg.defenderId === opponentId) {
-        opponentHp = msg.defenderHp;
-        flashOpponentHitColor();
+      const defender = arenaPlayers.get(msg.defenderId);
+      if (defender) {
+        defender.hp = msg.defenderHp;
+        flashOpponentHitColor(msg.defenderId);
       } else {
+        // I'm the defender
         myHp = msg.defenderHp;
         flashDamage();
       }
@@ -314,8 +332,9 @@ export function handleArenaMessage(msg) {
 
     case 'heart_picked_up': {
       removeHeartMesh(msg.heartId);
-      if (msg.playerId === opponentId) {
-        opponentHp = msg.hp;
+      const picker = arenaPlayers.get(msg.playerId);
+      if (picker) {
+        picker.hp = msg.hp;
       } else {
         myHp = msg.hp;
       }
@@ -326,14 +345,11 @@ export function handleArenaMessage(msg) {
     case 'round_end': {
       phase = 'round_end';
       if (msg.roundWins) {
-        // Determine which wins are mine
-        const myId = msg.winnerId === opponentId ? msg.loserId : msg.winnerId;
-        myRoundWins = msg.roundWins[myId] || 0;
-        opponentRoundWins = msg.roundWins[opponentId] || 0;
+        myTeamWins = msg.roundWins[myTeam] || 0;
+        enemyTeamWins = msg.roundWins[myTeam === 1 ? 2 : 1] || 0;
       }
-      showRoundEndDisplay(msg.winnerId !== opponentId);
+      showRoundEndDisplay(msg.winningTeam === myTeam);
       updateRoundDisplay();
-      // Clean up hearts
       heartMeshes.forEach(mesh => arenaGroup.remove(mesh));
       heartMeshes.clear();
       break;
@@ -342,8 +358,10 @@ export function handleArenaMessage(msg) {
     case 'match_end': {
       phase = 'match_end';
       matchResult = msg;
-      const iWon = msg.winnerId !== opponentId;
-      showMatchEndDisplay(iWon, msg.winnerName, msg.loserName);
+      const iWon = msg.winningTeam === myTeam;
+      const winNames = (msg.winnerNames || []).join(' & ');
+      const loseNames = (msg.loserNames || []).join(' & ');
+      showMatchEndDisplay(iWon, winNames, loseNames);
       break;
     }
 
@@ -405,55 +423,57 @@ function removeHeartMesh(heartId) {
 
 // ─── ARENA ANIMATION (call each frame) ──────────────────────────────
 export function updateArenaScene(delta, time, camera) {
-  if (!inArena || !opponentModel) return;
+  if (!inArena) return;
 
-  // Animate opponent
   const lerpFactor = Math.min(1, delta * 12);
-  const group = opponentModel.group;
-  const prevX = group.position.x;
-  const prevZ = group.position.z;
 
-  group.position.x += (opponentTargetPos.x - group.position.x) * lerpFactor;
-  group.position.y += (opponentTargetPos.y - group.position.y) * lerpFactor;
-  group.position.z += (opponentTargetPos.z - group.position.z) * lerpFactor;
+  // Animate all arena players
+  arenaPlayers.forEach((pd) => {
+    const model = pd.model;
+    if (!model || !model.group.visible) return;
 
-  const dx = group.position.x - prevX;
-  const dz = group.position.z - prevZ;
-  const speed = delta > 0 ? Math.sqrt(dx * dx + dz * dz) / delta : 0;
+    const group = model.group;
+    const prevX = group.position.x;
+    const prevZ = group.position.z;
 
-  // Rotate to face direction
-  const targetRotY = -opponentTargetYaw + Math.PI;
-  let rotDiff = targetRotY - group.rotation.y;
-  while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
-  while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
-  group.rotation.y += rotDiff * lerpFactor;
+    group.position.x += (pd.targetPos.x - group.position.x) * lerpFactor;
+    group.position.y += (pd.targetPos.y - group.position.y) * lerpFactor;
+    group.position.z += (pd.targetPos.z - group.position.z) * lerpFactor;
 
-  // Walk animation
-  if (speed > 0.5) {
-    opponentWalkPhase += delta * speed * 2;
-    const swing = Math.sin(opponentWalkPhase) * 0.6;
-    opponentModel.leftArm.rotation.x = swing;
-    opponentModel.rightArm.rotation.x = -swing;
-    opponentModel.leftLeg.rotation.x = -swing;
-    opponentModel.rightLeg.rotation.x = swing;
-  } else {
-    opponentModel.leftArm.rotation.x *= 0.9;
-    opponentModel.rightArm.rotation.x *= 0.9;
-    opponentModel.leftLeg.rotation.x *= 0.9;
-    opponentModel.rightLeg.rotation.x *= 0.9;
-  }
+    const dx = group.position.x - prevX;
+    const dz = group.position.z - prevZ;
+    const speed = delta > 0 ? Math.sqrt(dx * dx + dz * dz) / delta : 0;
 
-  // Swing animation
-  if (opponentSwingTime > 0) {
-    opponentSwingTime -= delta * 2;
-    const swingCurve = Math.sin(opponentSwingTime * Math.PI * 2) * 1.2;
-    opponentModel.leftArm.rotation.x = swingCurve;
-  }
+    const targetRotY = -pd.targetYaw + Math.PI;
+    let rotDiff = targetRotY - group.rotation.y;
+    while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+    while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+    group.rotation.y += rotDiff * lerpFactor;
 
-  // Billboard name label
-  if (opponentModel.nameLabel && camera) {
-    opponentModel.nameLabel.lookAt(camera.position);
-  }
+    if (speed > 0.5) {
+      pd.walkPhase += delta * speed * 2;
+      const swing = Math.sin(pd.walkPhase) * 0.6;
+      model.leftArm.rotation.x = swing;
+      model.rightArm.rotation.x = -swing;
+      model.leftLeg.rotation.x = -swing;
+      model.rightLeg.rotation.x = swing;
+    } else {
+      model.leftArm.rotation.x *= 0.9;
+      model.rightArm.rotation.x *= 0.9;
+      model.leftLeg.rotation.x *= 0.9;
+      model.rightLeg.rotation.x *= 0.9;
+    }
+
+    if (pd.swingTime > 0) {
+      pd.swingTime -= delta * 2;
+      const swingCurve = Math.sin(pd.swingTime * Math.PI * 2) * 1.2;
+      model.leftArm.rotation.x = swingCurve;
+    }
+
+    if (model.nameLabel && camera) {
+      model.nameLabel.lookAt(camera.position);
+    }
+  });
 
   // Animate hearts (bob + rotate)
   heartMeshes.forEach(mesh => {
@@ -484,23 +504,26 @@ function hideCombatHUD() {
 
 function updateHPBars() {
   const myBar = document.getElementById('my-hp-bar');
-  const oppBar = document.getElementById('opp-hp-bar');
   const myText = document.getElementById('my-hp-text');
-  const oppText = document.getElementById('opp-hp-text');
-
   if (myBar) myBar.style.width = myHp + '%';
-  if (oppBar) oppBar.style.width = opponentHp + '%';
   if (myText) myText.textContent = Math.round(myHp) + '%';
-  if (oppText) oppText.textContent = Math.round(opponentHp) + '%';
-
-  // Color based on HP
   if (myBar) myBar.style.background = myHp > 50 ? '#00cc44' : myHp > 25 ? '#ffaa00' : '#ff3333';
-  if (oppBar) oppBar.style.background = opponentHp > 50 ? '#00cc44' : opponentHp > 25 ? '#ffaa00' : '#ff3333';
+
+  // For 1v1, show single opponent bar; for 2v2, show first enemy HP
+  const oppBar = document.getElementById('opp-hp-bar');
+  const oppText = document.getElementById('opp-hp-text');
+  let oppHp = 100;
+  for (const [, pd] of arenaPlayers) {
+    if (pd.team !== myTeam) { oppHp = pd.hp; break; }
+  }
+  if (oppBar) oppBar.style.width = oppHp + '%';
+  if (oppText) oppText.textContent = Math.round(oppHp) + '%';
+  if (oppBar) oppBar.style.background = oppHp > 50 ? '#00cc44' : oppHp > 25 ? '#ffaa00' : '#ff3333';
 }
 
 function updateRoundDisplay() {
   const el = document.getElementById('round-display');
-  if (el) el.textContent = `Round ${currentRound} / 3  |  ${myRoundWins} - ${opponentRoundWins}`;
+  if (el) el.textContent = `Round ${currentRound} / 3  |  ${myTeamWins} - ${enemyTeamWins}`;
 }
 
 function updateCountdownDisplay(value) {
@@ -549,50 +572,45 @@ function flashDamage() {
   }
 }
 
-// ─── HIT COLOR FLASH ON OPPONENT BODY ──────────────────────────────
-const originalColors = {};
-let hitFlashActive = false;
+// ─── HIT COLOR FLASH ON PLAYER BODY ──────────────────────────────
+const hitFlashTimers = new Map();
 
-function flashOpponentHitColor() {
-  if (!opponentModel || hitFlashActive) return;
-  hitFlashActive = true;
+function flashOpponentHitColor(playerId) {
+  const pd = arenaPlayers.get(playerId);
+  if (!pd || !pd.model || hitFlashTimers.has(playerId)) return;
+  hitFlashTimers.set(playerId, true);
 
+  const model = pd.model;
   const hitColor = new THREE.Color(0xff0000);
   const parts = ['head', 'body', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg'];
+  const origColors = {};
 
-  // Store originals and set hit color
   parts.forEach(part => {
-    const mesh = opponentModel[part];
+    const mesh = model[part];
     if (mesh && mesh.material) {
-      if (!originalColors[part]) {
-        originalColors[part] = mesh.material.color.getHex();
-      }
+      origColors[part] = mesh.material.color.getHex();
       mesh.material.color.set(hitColor);
       mesh.material.emissive = new THREE.Color(0xff2222);
       mesh.material.emissiveIntensity = 0.6;
     }
   });
 
-  // Flash white briefly then back to red then restore
   setTimeout(() => {
     parts.forEach(part => {
-      const mesh = opponentModel?.[part];
-      if (mesh && mesh.material) {
-        mesh.material.color.set(0xffffff);
-      }
+      const mesh = model?.[part];
+      if (mesh && mesh.material) mesh.material.color.set(0xffffff);
     });
   }, 80);
 
-  // Restore original colors
   setTimeout(() => {
     parts.forEach(part => {
-      const mesh = opponentModel?.[part];
+      const mesh = model?.[part];
       if (mesh && mesh.material) {
-        mesh.material.color.setHex(originalColors[part] || 0xcccccc);
+        mesh.material.color.setHex(origColors[part] || 0xcccccc);
         mesh.material.emissive = new THREE.Color(0x000000);
         mesh.material.emissiveIntensity = 0;
       }
     });
-    hitFlashActive = false;
+    hitFlashTimers.delete(playerId);
   }, 200);
 }

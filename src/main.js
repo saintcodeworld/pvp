@@ -10,7 +10,7 @@ import {
   isLocked, exhibitOpen, currentExhibit, minimapVisible, chatOpen, activeSlot,
   setIsLocked, setExhibitOpen, setCurrentExhibit, setMinimapVisible, setChatOpen,
   setMoveForward, setMoveBackward, setMoveLeft, setMoveRight,
-  setYaw, setPitch, setCollisionEnabled,
+  setYaw, setPitch, setCollisionEnabled, setSpacePressed,
   initPlayer, getCamera, getRenderer,
   updatePlayerMovement, updateCamera, tryJump,
   createHandModel, swingSword, selectHotbarSlot, updateHandAnimation,
@@ -20,14 +20,14 @@ import {
   connectWebSocket, sendPositionUpdate, sendSwing, setMyPlayerName,
   setMultiplayerScene, setMultiplayerCamera, setExternalMessageHandler,
   updateRemotePlayers, openChat, closeChat, sendChatMessage,
-  ws, myPlayerName
+  ws, myPlayerName, myPlayerId
 } from './multiplayer.js';
 import {
   updateLoading, openExhibit, closeExhibitPanel,
   updateMinimap, drawRemotePlayersOnMinimap,
   initAudio, getAudioCtx
 } from './ui.js';
-import { setPortalScene, createPVPPortal, updatePortalAnimation } from './portal.js';
+import { setPortalScene, createPVPPortal, createFFABlock, updatePortalAnimation, updateFFAQueueDisplay } from './portal.js';
 import {
   setLobbyScene, initLobbyUI, enterLobby, exitLobby,
   isInLobby, handleLobbyMessage, updateVoidScene
@@ -37,13 +37,28 @@ import {
   handleArenaMessage, updateArenaScene,
   sendArenaPositionUpdate, sendArenaSwing, getArenaPhase
 } from './pvp-arena.js';
-import { setLeaderboardScene, createLeaderboardWall, updateLeaderboard } from './leaderboard.js';
+import { setLeaderboardScene, createLeaderboardWall, updateLeaderboard, setLeaderboardTab, getLeaderboardTab, refreshFFALeaderboard } from './leaderboard.js';
 import { initAuth, getDisplayName } from './auth.js';
+import { initSettings, closeSettings, isSettingsOpen } from './settings.js';
+import {
+  setFFAScene, enterFFA, exitFFA, isInFFA,
+  handleFFAMessage, updateFFAScene,
+  sendFFAPositionUpdate, sendFFASwing, getFFAPhase
+} from './ffa-arena.js';
+import {
+  initVoiceChat, startTalking, stopTalking,
+  handleVoiceSignal, cleanupVoice, isVoiceEnabled
+} from './voice-chat.js';
+import {
+  detectMobile, initMobileControls, getIsMobile,
+  mobileForward, mobileRight, mobileLookX, mobileLookY,
+  mobileJump, mobileAttack, mobileInteract, resetMobileFrame
+} from './mobile-controls.js';
 
 // ─── GLOBALS ────────────────────────────────────────────────────────
 let scene, camera, renderer;
 let audioInitialized = false;
-let gameState = 'museum'; // 'museum' | 'lobby' | 'arena'
+let gameState = 'museum'; // 'museum' | 'lobby' | 'arena' | 'ffa_queue' | 'ffa'
 let museumObjectsVisible = true;
 let escapeMode = false; // Track if escape was pressed to show cursor
 
@@ -133,7 +148,9 @@ function setupControls() {
       case 'KeyA': case 'ArrowLeft': setMoveLeft(true); break;
       case 'KeyD': case 'ArrowRight': setMoveRight(true); break;
       case 'Space':
-        tryJump();
+        if (!e.repeat) {
+          setSpacePressed(true);
+        }
         break;
       case 'KeyE':
         if (isLocked) handleInteract();
@@ -150,6 +167,11 @@ function setupControls() {
         }
         break;
       case 'Escape':
+        if (isSettingsOpen()) {
+          closeSettings();
+          e.preventDefault();
+          break;
+        }
         if (exhibitOpen) {
           setExhibitOpen(false);
           closeExhibitPanel();
@@ -170,6 +192,9 @@ function setupControls() {
       case 'Digit7': selectHotbarSlot(6); break;
       case 'Digit8': selectHotbarSlot(7); break;
       case 'Digit9': selectHotbarSlot(8); break;
+      case 'KeyV':
+        if (!e.repeat) startTalking();
+        break;
     }
   });
 
@@ -179,6 +204,8 @@ function setupControls() {
       case 'KeyS': case 'ArrowDown': setMoveBackward(false); break;
       case 'KeyA': case 'ArrowLeft': setMoveLeft(false); break;
       case 'KeyD': case 'ArrowRight': setMoveRight(false); break;
+      case 'Space': setSpacePressed(false); break;
+      case 'KeyV': stopTalking(); break;
     }
   });
 
@@ -209,6 +236,15 @@ function handleInteract() {
   if (currentExhibit) {
     if (currentExhibit === 'pvp_portal') {
       enterPVPLobby();
+      return;
+    }
+    if (currentExhibit === 'ffa_queue') {
+      enterFFAQueue();
+      return;
+    }
+    if (currentExhibit === 'leaderboard_tab') {
+      // Toggle leaderboard tab
+      setLeaderboardTab(getLeaderboardTab() === 'pvp' ? 'ffa' : 'pvp');
       return;
     }
     setExhibitOpen(true);
@@ -244,6 +280,7 @@ function enterPVPLobby() {
   document.getElementById('social-bar').style.display = 'none';
   document.getElementById('player-count').style.display = 'none';
   document.getElementById('chat-box').style.display = 'none';
+  document.getElementById('settings-btn').style.display = 'none';
   
   // Hide blocker when entering lobby
   const blocker = document.getElementById('blocker');
@@ -279,6 +316,9 @@ function returnToMuseum() {
   // Restore hand models
   showHandModels();
 
+  // Show settings button
+  document.getElementById('settings-btn').style.display = 'flex';
+
   // Re-lock pointer for museum
   safeRequestPointerLock();
 }
@@ -301,6 +341,67 @@ function enterPVPArena(gameData) {
 
   enterArena(gameData, (matchResult) => {
     // Callback when match ends — return to museum
+    returnToMuseum();
+  });
+}
+
+// ─── FFA TRANSITIONS ────────────────────────────────────────────────
+function enterFFAQueue() {
+  gameState = 'ffa_queue';
+
+  // Hide museum HUD
+  document.getElementById('hud').style.display = 'none';
+  document.getElementById('crosshair').style.display = 'none';
+  document.getElementById('interact-prompt').style.display = 'none';
+  document.getElementById('minimap').style.display = 'none';
+  document.getElementById('settings-btn').style.display = 'none';
+
+  // Show FFA queue UI
+  const queueUI = document.getElementById('ffa-queue-ui');
+  if (queueUI) queueUI.style.display = 'flex';
+
+  // Tell server to join FFA queue
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'ffa_join_queue' }));
+  }
+}
+
+function leaveFFAQueue() {
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'ffa_leave_queue' }));
+  }
+  const queueUI = document.getElementById('ffa-queue-ui');
+  if (queueUI) queueUI.style.display = 'none';
+  gameState = 'museum';
+
+  // Restore museum HUD
+  document.getElementById('hud').style.display = 'block';
+  document.getElementById('settings-btn').style.display = 'flex';
+  if (isLocked) document.getElementById('crosshair').style.display = 'block';
+}
+
+function enterFFAArena(setupData) {
+  gameState = 'ffa';
+  setMuseumVisible(false);
+  setCollisionEnabled(false);
+  scene.fog = new THREE.Fog(0x100005, 40, 80);
+  scene.background = new THREE.Color(0x100005);
+
+  // Hide queue UI
+  const queueUI = document.getElementById('ffa-queue-ui');
+  if (queueUI) queueUI.style.display = 'none';
+
+  // Restore hand models for combat
+  showHandModels();
+  safeRequestPointerLock();
+  selectHotbarSlot(1);
+
+  // Add myId to setupData from multiplayer module
+  setupData.myId = myPlayerId;
+
+  enterFFA(setupData, (result) => {
+    // FFA ended — refresh leaderboard then return to museum
+    refreshFFALeaderboard();
     returnToMuseum();
   });
 }
@@ -336,39 +437,95 @@ async function init() {
   setPortalScene(scene);
   setLobbyScene(scene);
   setArenaScene(scene);
+  setFFAScene(scene);
   setLeaderboardScene(scene);
 
-  // Route lobby/arena WS messages based on game state
+  // Route lobby/arena/FFA WS messages based on game state
   setExternalMessageHandler((msg) => {
     // Lobby-related messages
     const lobbyMsgTypes = [
       'lobby_entered', 'lobby_list', 'lobby_created', 'lobby_cancelled',
-      'lobby_error', 'game_starting'
+      'lobby_error', 'game_starting', 'lobby_player_joined', 'lobby_player_left'
     ];
     if (lobbyMsgTypes.includes(msg.type)) {
       handleLobbyMessage(msg);
       return;
     }
 
-    // Arena-related messages
+    // Arena-related messages (1v1 and 2v2)
     const arenaMsgTypes = [
-      'arena_setup', 'countdown_tick', 'round_start', 'hit',
+      'arena_setup', 'player_eliminated'
+    ];
+    if (arenaMsgTypes.includes(msg.type) && (gameState === 'arena' || gameState === 'lobby')) {
+      handleArenaMessage(msg);
+      return;
+    }
+
+    // FFA-specific messages
+    const ffaMsgTypes = [
+      'ffa_queue_update', 'ffa_arena_setup', 'ffa_round_start',
+      'ffa_player_eliminated', 'ffa_match_end', 'ffa_error'
+    ];
+    if (ffaMsgTypes.includes(msg.type)) {
+      if (msg.type === 'ffa_queue_update') {
+        // Update queue UI
+        const countEl = document.getElementById('ffa-queue-count');
+        if (countEl) countEl.textContent = `${msg.count}/${msg.max} Players`;
+        const listEl = document.getElementById('ffa-queue-players');
+        if (listEl) listEl.innerHTML = (msg.players || []).map(n => `<div>${n}</div>`).join('');
+        return;
+      }
+      if (msg.type === 'ffa_arena_setup') {
+        enterFFAArena(msg);
+        return;
+      }
+      handleFFAMessage(msg);
+      return;
+    }
+
+    // FFA queue count broadcast (for museum display)
+    if (msg.type === 'ffa_queue_count') {
+      updateFFAQueueDisplay(msg.count, msg.max);
+      return;
+    }
+
+    // Shared combat messages — route by game state
+    const sharedCombatMsgs = [
+      'countdown_tick', 'round_start', 'hit',
       'heart_spawn', 'heart_picked_up', 'round_end', 'match_end'
     ];
-    if (arenaMsgTypes.includes(msg.type)) {
-      handleArenaMessage(msg);
+    if (sharedCombatMsgs.includes(msg.type)) {
+      if (gameState === 'ffa') {
+        handleFFAMessage(msg);
+      } else {
+        handleArenaMessage(msg);
+      }
       return;
     }
 
-    // player_update and player_swing in arena go to arena handler
-    if (gameState === 'arena' && (msg.type === 'player_update' || msg.type === 'player_swing')) {
-      handleArenaMessage(msg);
+    // player_update and player_swing — route by game state
+    if (msg.type === 'player_update' || msg.type === 'player_swing') {
+      if (gameState === 'ffa') {
+        handleFFAMessage(msg);
+      } else if (gameState === 'arena') {
+        handleArenaMessage(msg);
+      }
       return;
     }
 
-    // returned_to_museum can come from lobby or arena
+    // Voice signaling
+    if (msg.type === 'voice_offer' || msg.type === 'voice_answer' || msg.type === 'voice_ice') {
+      handleVoiceSignal(msg);
+      return;
+    }
+
+    // returned_to_museum can come from lobby, arena, or FFA
     if (msg.type === 'returned_to_museum') {
-      handleArenaMessage(msg);
+      if (gameState === 'ffa') {
+        handleFFAMessage(msg);
+      } else {
+        handleArenaMessage(msg);
+      }
       return;
     }
   });
@@ -384,6 +541,7 @@ async function init() {
   updateLoading(50, 'Constructing PVP Wars Portal...');
   await sleep(50);
   createPVPPortal();
+  createFFABlock();
 
   updateLoading(60, 'Setting up lighting...');
   await sleep(50);
@@ -410,6 +568,8 @@ async function init() {
     if (e.button === 0 && isLocked) {
       if (gameState === 'arena') {
         swingSword(sendArenaSwing);
+      } else if (gameState === 'ffa') {
+        swingSword(sendFFASwing);
       } else {
         swingSword(sendSwing);
       }
@@ -423,6 +583,24 @@ async function init() {
   updateLoading(92, 'Setting up PVP systems...');
   await sleep(50);
   initLobbyUI();
+
+  // FFA queue leave button
+  const ffaLeaveBtn = document.getElementById('ffa-queue-leave-btn');
+  if (ffaLeaveBtn) {
+    ffaLeaveBtn.addEventListener('click', () => leaveFFAQueue());
+  }
+
+  // Detect mobile and init touch controls
+  detectMobile();
+  if (getIsMobile()) {
+    initMobileControls();
+  }
+
+  // Init voice chat
+  initVoiceChat();
+
+  // Init settings UI
+  initSettings();
 
   // Listen for lobby exit event (back to museum button)
   window.addEventListener('lobby-exit', () => {
@@ -491,6 +669,7 @@ function setupVisibilityHandler() {
             ws.send(JSON.stringify({ type: 'ping' }));
           }
           if (gameState === 'arena') sendArenaPositionUpdate();
+          if (gameState === 'ffa') sendFFAPositionUpdate();
           if (gameState === 'museum') sendPositionUpdate();
         }, 1000); // 1s interval is enough for keepalive
       }
@@ -549,8 +728,8 @@ function setupFocusHandler() {
         if (blocker) blocker.style.display = 'flex';
         setIsLocked(false);
       }
-      if (!hasLock && gameState === 'arena') {
-        // Arena needs pointer lock — prompt re-lock on click
+      if (!hasLock && (gameState === 'arena' || gameState === 'ffa')) {
+        // Arena/FFA needs pointer lock — prompt re-lock on click
         safeRequestPointerLock();
       }
     }, 100);
@@ -665,8 +844,22 @@ function animate() {
         }
       }
 
-      // Hand animation (runs in museum and arena)
-      if (gameState === 'museum' || gameState === 'arena') {
+      // ─── FFA STATE ───
+      if (gameState === 'ffa') {
+        const phase = getFFAPhase();
+        if (phase === 'fighting') {
+          updatePlayerMovement(delta);
+        }
+        updateFFAScene(delta, time, camera);
+        sendFFAPositionUpdate();
+
+        if (isLocked) {
+          document.getElementById('crosshair').style.display = 'block';
+        }
+      }
+
+      // Hand animation (runs in museum, arena, and FFA)
+      if (gameState === 'museum' || gameState === 'arena' || gameState === 'ffa') {
         updateHandAnimation(delta, time);
       }
 

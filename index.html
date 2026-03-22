@@ -81,11 +81,9 @@
       border: none; cursor: pointer; font-size: 1rem;
       display: flex; align-items: center; justify-content: center;
       pointer-events: all; opacity: 0.7; transition: opacity 0.2s;
+      background: #000; color: #fff;
     }
     .social-btn:hover { opacity: 1; }
-    .social-btn.twitter { background: #1da1f2; color: #fff; }
-    .social-btn.facebook { background: #4267B2; color: #fff; }
-    .social-btn.share { background: #25D366; color: #fff; }
 
     #loading {
       position: fixed; inset: 0; z-index: 200;
@@ -407,6 +405,297 @@
       0%, 100% { opacity: 0.2; }
       50% { opacity: 0.8; }
     }
+    /* ─── LOBBY MODE BUTTONS ─── */
+    .lobby-mode-section {
+      margin-bottom: 16px;
+    }
+    .lobby-mode-section h4 {
+      color: #cc44ff; font-size: 0.85rem; margin-bottom: 8px;
+      font-family: 'Courier New', monospace; text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .lobby-mode-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+      margin-bottom: 8px;
+    }
+    .lobby-btn.mode-1v1 { background: #9933ff; color: #fff; }
+    .lobby-btn.mode-1v1:hover { background: #aa55ff; }
+    .lobby-btn.mode-2v2 { background: #ff6633; color: #fff; }
+    .lobby-btn.mode-2v2:hover { background: #ff8855; }
+    .lobby-btn.private { background: #336699; color: #fff; font-size: 0.75rem; }
+    .lobby-btn.private:hover { background: #4488bb; }
+
+    .lobby-mode-badge {
+      background: #553388; color: #cc88ff; padding: 2px 8px;
+      border-radius: 3px; font-size: 0.7rem; font-weight: bold;
+    }
+    .lobby-players-count {
+      color: #888; font-size: 0.75rem; margin-left: 8px;
+    }
+
+    /* Private lobby join */
+    .private-join-row {
+      display: flex; gap: 6px; margin-top: 8px;
+    }
+    .private-join-row input {
+      flex: 1; padding: 8px 10px; background: rgba(30,25,40,0.9);
+      border: 1px solid #444; border-radius: 4px; color: #fff;
+      font-family: 'Courier New', monospace; font-size: 0.8rem; outline: none;
+    }
+    .private-join-row input:focus { border-color: #9933ff; }
+
+    /* Lobby room view */
+    #lobby-room {
+      position: fixed; inset: 0; z-index: 85;
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; pointer-events: none;
+    }
+    #lobby-room .room-panel {
+      background: rgba(10,8,20,0.95); border: 2px solid #9933ff;
+      border-radius: 8px; padding: 30px 40px; width: 400px;
+      text-align: center; pointer-events: all;
+    }
+    #lobby-room h3 {
+      color: #cc44ff; font-size: 1.1rem; margin-bottom: 12px;
+      font-family: 'Courier New', monospace;
+    }
+    #lobby-room-code {
+      color: #f5a623; font-size: 1.5rem; letter-spacing: 4px;
+      margin-bottom: 12px; font-family: 'Courier New', monospace;
+    }
+    #lobby-room-players {
+      margin: 12px 0; color: #ccc; font-size: 0.85rem;
+      font-family: 'Courier New', monospace;
+    }
+    #lobby-room-players div {
+      padding: 4px 0; border-bottom: 1px solid rgba(100,50,180,0.2);
+    }
+
+    /* ─── FFA QUEUE UI ─── */
+    #ffa-queue-ui {
+      position: fixed; inset: 0; z-index: 85;
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column;
+    }
+    .ffa-queue-panel {
+      background: rgba(20,10,5,0.95); border: 2px solid #ff6633;
+      border-radius: 8px; padding: 40px; text-align: center;
+      width: 360px; max-width: 90vw;
+    }
+    .ffa-queue-panel h2 {
+      color: #ff6633; font-size: 1.3rem; margin-bottom: 16px;
+      font-family: 'Courier New', monospace; text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+    #ffa-queue-count {
+      color: #f5a623; font-size: 1.1rem; margin-bottom: 12px;
+      font-family: 'Courier New', monospace;
+    }
+    #ffa-queue-players {
+      margin: 12px 0; color: #ccc; font-size: 0.85rem;
+      font-family: 'Courier New', monospace; max-height: 200px;
+      overflow-y: auto;
+    }
+    #ffa-queue-players div {
+      padding: 4px 0; border-bottom: 1px solid rgba(255,100,50,0.15);
+    }
+    .ffa-queue-spinner {
+      color: #ff6633; font-size: 1.5rem;
+      animation: ffa-spin 1.5s linear infinite;
+      margin-bottom: 12px;
+    }
+    @keyframes ffa-spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* ─── FFA HUD ─── */
+    #ffa-hud {
+      position: fixed; top: 0; left: 0; right: 0;
+      z-index: 70; display: none; pointer-events: none;
+    }
+    .ffa-hp-row {
+      display: flex; justify-content: center; padding: 10px 20px; gap: 20px;
+    }
+    #ffa-alive-count {
+      text-align: center; color: #ff6633;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem; padding: 4px;
+    }
+    #ffa-placement {
+      position: fixed; top: 35%; left: 50%; transform: translate(-50%, -50%);
+      z-index: 75; display: none;
+      font-size: 3rem; color: #f5a623; font-family: 'Courier New', monospace;
+      font-weight: bold; text-shadow: 0 0 20px rgba(245,166,35,0.6);
+      pointer-events: none;
+    }
+
+    #ffa-countdown {
+      position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
+      z-index: 75; display: none;
+      font-size: 6rem; color: #ff6633; font-family: 'Courier New', monospace;
+      font-weight: bold; text-shadow: 0 0 30px rgba(255,100,50,0.6);
+      pointer-events: none;
+    }
+    #ffa-overlay {
+      position: fixed; inset: 0; z-index: 72;
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; pointer-events: none;
+    }
+    .ffa-placements {
+      margin-top: 20px; width: 300px;
+    }
+    .ffa-placement-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 12px; margin-bottom: 4px;
+      background: rgba(0,0,0,0.5); border-radius: 3px;
+      font-family: 'Courier New', monospace; font-size: 0.85rem;
+    }
+    .ffa-place { color: #f5a623; font-weight: bold; width: 40px; }
+    .ffa-pname { color: #eee; flex: 1; text-align: left; margin-left: 8px; }
+    .ffa-kills { color: #ff6633; width: 70px; text-align: right; }
+
+    /* ─── SETTINGS BUTTON ─── */
+    #settings-btn {
+      position: fixed; top: 15px; right: 170px; z-index: 55;
+      height: 32px; border-radius: 4px;
+      border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: all; opacity: 0.7; transition: opacity 0.2s;
+      background: rgba(80,80,80,0.7); color: #fff;
+      font-family: 'Courier New', monospace;
+      font-size: 0.7rem; font-weight: bold;
+      text-transform: uppercase; letter-spacing: 1px;
+      padding: 0 14px;
+    }
+    #settings-btn:hover { opacity: 1; }
+
+    /* ─── SETTINGS OVERLAY ─── */
+    #settings-overlay {
+      position: fixed; inset: 0; z-index: 250;
+      display: none; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.75);
+    }
+    .settings-panel {
+      background: rgba(15,12,25,0.97);
+      border: 2px solid #f5a623;
+      border-radius: 8px; padding: 30px 36px;
+      width: 400px; max-width: 92vw;
+      max-height: 85vh; overflow-y: auto;
+    }
+    .settings-panel h2 {
+      color: #f5a623; font-family: 'Courier New', monospace;
+      font-size: 1.3rem; text-align: center;
+      text-transform: uppercase; letter-spacing: 3px;
+      margin-bottom: 6px;
+    }
+    .settings-panel .settings-username {
+      color: #888; font-family: 'Courier New', monospace;
+      font-size: 0.8rem; text-align: center;
+      margin-bottom: 22px;
+    }
+    .settings-section {
+      margin-bottom: 22px;
+    }
+    .settings-section h4 {
+      color: #cc44ff; font-size: 0.85rem; margin-bottom: 10px;
+      font-family: 'Courier New', monospace; text-transform: uppercase;
+      letter-spacing: 1px; border-bottom: 1px solid #333; padding-bottom: 6px;
+    }
+    .settings-input {
+      width: 100%; padding: 9px 12px;
+      background: rgba(30,25,40,0.9);
+      border: 1px solid #444; border-radius: 4px;
+      color: #eee; font-family: 'Courier New', monospace;
+      font-size: 0.82rem; margin-bottom: 8px;
+      outline: none; transition: border-color 0.2s;
+    }
+    .settings-input:focus { border-color: #f5a623; }
+    .settings-input::placeholder { color: #555; }
+    .settings-save-btn {
+      width: 100%; padding: 10px;
+      background: #f5a623; color: #000;
+      border: none; border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.82rem; font-weight: bold;
+      text-transform: uppercase; letter-spacing: 1px;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .settings-save-btn:hover { background: #ffc04d; }
+    .settings-close-btn {
+      width: 100%; padding: 10px; margin-top: 6px;
+      background: #333; color: #ccc;
+      border: 1px solid #555; border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.82rem; font-weight: bold;
+      text-transform: uppercase; cursor: pointer;
+      transition: background 0.2s;
+    }
+    .settings-close-btn:hover { background: #444; }
+    .settings-error {
+      color: #ff4444; font-size: 0.75rem;
+      font-family: 'Courier New', monospace;
+      text-align: center; min-height: 16px; margin-top: 4px;
+    }
+    .settings-success {
+      color: #00cc44; font-size: 0.75rem;
+      font-family: 'Courier New', monospace;
+      text-align: center; min-height: 16px; margin-top: 4px;
+    }
+    .settings-wallet-hint {
+      color: #666; font-size: 0.7rem;
+      font-family: 'Courier New', monospace;
+      margin-bottom: 8px; line-height: 1.4;
+    }
+
+    /* ─── VOICE CHAT INDICATOR ─── */
+    #voice-indicator {
+      position: fixed; bottom: 80px; right: 15px; z-index: 55;
+      display: none; padding: 6px 14px;
+      background: rgba(0,200,50,0.2); border: 1px solid #00cc44;
+      border-radius: 4px; color: #00ff44;
+      font-family: 'Courier New', monospace; font-size: 0.75rem;
+      font-weight: bold; text-transform: uppercase;
+    }
+
+    /* ─── MOBILE CONTROLS ─── */
+    #mobile-controls {
+      display: none; position: fixed; inset: 0;
+      z-index: 45; pointer-events: none;
+    }
+    #mobile-joystick {
+      position: absolute; bottom: 30px; left: 30px;
+      width: 120px; height: 120px;
+      background: rgba(255,255,255,0.1);
+      border: 2px solid rgba(255,255,255,0.2);
+      border-radius: 50%; pointer-events: all;
+    }
+    #mobile-joystick-knob {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 40px; height: 40px;
+      background: rgba(255,255,255,0.3);
+      border-radius: 50%;
+    }
+    #mobile-look-area {
+      position: absolute; top: 0; right: 0;
+      width: 50%; height: 70%;
+      pointer-events: all;
+    }
+    .mobile-btn {
+      position: absolute; width: 56px; height: 56px;
+      border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
+      background: rgba(255,255,255,0.1); pointer-events: all;
+      display: flex; align-items: center; justify-content: center;
+      color: rgba(255,255,255,0.5); font-size: 1.2rem;
+      font-family: 'Courier New', monospace; font-weight: bold;
+    }
+    .mobile-btn:active { background: rgba(255,255,255,0.25); }
+    #mobile-jump-btn { bottom: 100px; right: 30px; }
+    #mobile-attack-btn { bottom: 30px; right: 100px; }
+    #mobile-interact-btn { bottom: 30px; right: 30px; }
+    #mobile-voice-btn { bottom: 170px; right: 30px; }
+
   </style>
 </head>
 <body>
@@ -464,9 +753,9 @@
   <div id="minimap"><canvas id="minimap-canvas" width="140" height="140"></canvas></div>
 
   <div id="social-bar">
-    <button class="social-btn twitter" onclick="shareTo('twitter')">𝕏</button>
-    <button class="social-btn facebook" onclick="shareTo('facebook')">f</button>
-    <button class="social-btn share" onclick="shareTo('clipboard')">🔗</button>
+    <a href="https://x.com" target="_blank" rel="noopener noreferrer" class="social-btn" title="Follow us on X">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+    </a>
   </div>
 
 
@@ -479,23 +768,52 @@
     </div>
   </div>
 
-  <!-- LOBBY UI -->
+  <!-- LOBBY UI (Main View) -->
   <div id="lobby-ui">
     <div class="lobby-panel">
       <h2>⚔ PVP Wars</h2>
-      <div id="lobby-list"></div>
-      <button class="lobby-btn create" id="lobby-create-btn">Create Lobby</button>
+      <div class="lobby-mode-section">
+        <h4>Create Match</h4>
+        <div class="lobby-mode-grid">
+          <button class="lobby-btn mode-1v1" id="lobby-create-1v1">1v1 Public</button>
+          <button class="lobby-btn mode-2v2" id="lobby-create-2v2">2v2 Public</button>
+          <button class="lobby-btn private" id="lobby-create-private-1v1">1v1 Private</button>
+          <button class="lobby-btn private" id="lobby-create-private-2v2">2v2 Private</button>
+        </div>
+      </div>
+      <div class="lobby-mode-section">
+        <h4>Join Private</h4>
+        <div class="private-join-row">
+          <input type="text" id="lobby-private-code" placeholder="Enter code..." maxlength="6" autocomplete="off">
+          <button class="lobby-btn create" id="lobby-join-private-btn" style="width:auto;padding:8px 16px;margin:0;">Join</button>
+        </div>
+      </div>
+      <div class="lobby-mode-section">
+        <h4>Open Lobbies</h4>
+        <div id="lobby-list"></div>
+      </div>
       <button class="lobby-btn back" id="lobby-back-btn">Back to Museum</button>
       <div id="lobby-status"></div>
     </div>
   </div>
 
-  <!-- WAITING FOR OPPONENT -->
+  <!-- WAITING FOR PLAYERS -->
   <div id="lobby-waiting">
     <div class="waiting-box">
-      <h3>Waiting for opponent...</h3>
+      <h3 id="lobby-waiting-title">Waiting for opponent...</h3>
+      <div id="lobby-waiting-code" style="color:#f5a623;font-size:1.2rem;letter-spacing:3px;margin-bottom:8px;display:none;"></div>
       <div class="waiting-dots">...</div>
       <button class="lobby-btn cancel" id="lobby-cancel-btn">Cancel</button>
+    </div>
+  </div>
+
+  <!-- LOBBY ROOM (for private lobbies showing players) -->
+  <div id="lobby-room">
+    <div class="room-panel">
+      <h3 id="lobby-room-title">Private Lobby</h3>
+      <div id="lobby-room-code"></div>
+      <div id="lobby-room-players"></div>
+      <button class="lobby-btn cancel" id="lobby-room-leave-btn">Leave</button>
     </div>
   </div>
 
@@ -517,6 +835,79 @@
   <div id="combat-countdown"></div>
   <div id="combat-overlay"></div>
   <div id="damage-flash"></div>
+
+  <!-- FFA QUEUE UI -->
+  <div id="ffa-queue-ui">
+    <div class="ffa-queue-panel">
+      <h2>⚔ Battle Royale</h2>
+      <div class="ffa-queue-spinner">⟳</div>
+      <div id="ffa-queue-count">0/8 Players</div>
+      <div id="ffa-queue-players"></div>
+      <button class="lobby-btn cancel" id="ffa-queue-leave-btn">Leave Queue</button>
+    </div>
+  </div>
+
+  <!-- FFA COMBAT HUD -->
+  <div id="ffa-hud">
+    <div class="ffa-hp-row">
+      <div class="hp-bar-wrap">
+        <div class="hp-label"><span>YOUR HP</span><span id="ffa-hp-text">100%</span></div>
+        <div class="hp-bar-bg"><div class="hp-bar-fg" id="ffa-hp-bar" style="width:100%"></div></div>
+      </div>
+    </div>
+    <div id="ffa-alive-count">8 / 8 Alive</div>
+  </div>
+  <div id="ffa-countdown"></div>
+  <div id="ffa-placement"></div>
+  <div id="ffa-overlay"></div>
+
+  <!-- SETTINGS BUTTON -->
+  <button id="settings-btn" title="Settings">SETTINGS</button>
+
+  <!-- SETTINGS OVERLAY -->
+  <div id="settings-overlay">
+    <div class="settings-panel">
+      <h2>⚙ Settings</h2>
+      <div class="settings-username">Logged in as: <span id="settings-username">Player</span></div>
+
+      <div class="settings-section">
+        <h4>Change Password</h4>
+        <form id="settings-pw-form" autocomplete="off">
+          <input type="password" class="settings-input" id="settings-new-pw" placeholder="New Password" minlength="6" autocomplete="new-password">
+          <input type="password" class="settings-input" id="settings-confirm-pw" placeholder="Confirm New Password" autocomplete="new-password">
+          <button type="submit" class="settings-save-btn">Update Password</button>
+        </form>
+        <div class="settings-error" id="settings-pw-error"></div>
+        <div class="settings-success" id="settings-pw-success"></div>
+      </div>
+
+      <div class="settings-section">
+        <h4>Solana Wallet</h4>
+        <div class="settings-wallet-hint">Add your Solana public wallet address to receive SOL prizes if you place in the top leaderboard rankings.</div>
+        <input type="text" class="settings-input" id="settings-wallet-input" placeholder="Your Solana public address" maxlength="44" autocomplete="off">
+        <button class="settings-save-btn" id="settings-wallet-save">Save Wallet</button>
+        <div class="settings-error" id="settings-wallet-error"></div>
+        <div class="settings-success" id="settings-wallet-success"></div>
+      </div>
+
+      <button class="settings-close-btn" id="settings-close-btn">Close</button>
+    </div>
+  </div>
+
+  <!-- VOICE CHAT INDICATOR -->
+  <div id="voice-indicator">🎙 TALKING</div>
+
+  <!-- MOBILE CONTROLS -->
+  <div id="mobile-controls">
+    <div id="mobile-joystick">
+      <div id="mobile-joystick-knob"></div>
+    </div>
+    <div id="mobile-look-area"></div>
+    <div class="mobile-btn" id="mobile-jump-btn">↑</div>
+    <div class="mobile-btn" id="mobile-attack-btn">⚔</div>
+    <div class="mobile-btn" id="mobile-interact-btn">E</div>
+    <div class="mobile-btn" id="mobile-voice-btn">🎙</div>
+  </div>
 
   <script type="module" src="/src/main.js"></script>
 </body>

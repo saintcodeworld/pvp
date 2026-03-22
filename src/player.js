@@ -8,6 +8,7 @@ export const playerPos = new THREE.Vector3(0, playerHeight + floorY, 2);
 
 export let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
 export let canJump = false;
+export let spacePressed = false;
 export let isLocked = false;
 export let yaw = 0, pitch = 0;
 export let activeSlot = 0;
@@ -35,6 +36,7 @@ export function setMoveBackward(v) { moveBackward = v; }
 export function setMoveLeft(v) { moveLeft = v; }
 export function setMoveRight(v) { moveRight = v; }
 export function setCanJump(v) { canJump = v; }
+export function setSpacePressed(v) { spacePressed = v; }
 export function setIsLocked(v) { isLocked = v; }
 export function setYaw(v) { yaw = v; }
 export function setPitch(v) { pitch = v; }
@@ -116,6 +118,12 @@ export function updatePlayerMovement(delta) {
     playerPos.y = playerHeight + floorY;
     velocity.y = 0;
     canJump = true;
+    
+    // Bhop: auto-jump if space is still held
+    if (spacePressed && isLocked) {
+      velocity.y = jumpSpeed;
+      canJump = false;
+    }
   }
 
   // World bounds (museum)

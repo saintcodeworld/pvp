@@ -82,7 +82,6 @@ let audioCtx;
 
 export function initAudio() {
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  playAmbientMusic();
 }
 
 function playAmbientMusic() {

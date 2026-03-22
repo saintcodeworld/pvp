@@ -1,17 +1,30 @@
 // ─── LOBBY MANAGER — create/join/list lobbies for PVP Wars ─────────
+// Supports: 1v1, 2v2, private lobbies with codes
 
-function setupLobbyManager(players, broadcastToRoom, sendTo) {
-  const lobbies = new Map(); // lobbyId -> { id, creatorId, creatorName, guestId, guestName, status }
+function generateLobbyCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+function setupLobbyManager(players, broadcastToRoom, sendTo, changeRoom, getMuseumPlayers) {
+  // lobbyId -> { id, mode:'1v1'|'2v2', isPrivate, code, creatorId, creatorName,
+  //              players: [{id,name,team}], maxPlayers, status:'waiting'|'in_game' }
+  const lobbies = new Map();
   let nextLobbyId = 1;
 
   function getOpenLobbies() {
     const open = [];
     lobbies.forEach((lobby) => {
-      if (lobby.status === 'waiting') {
+      if (lobby.status === 'waiting' && !lobby.isPrivate) {
         open.push({
           id: lobby.id,
+          mode: lobby.mode,
           creatorName: lobby.creatorName,
           creatorId: lobby.creatorId,
+          playerCount: lobby.players.length,
+          maxPlayers: lobby.maxPlayers,
         });
       }
     });
@@ -26,17 +39,22 @@ function setupLobbyManager(players, broadcastToRoom, sendTo) {
     });
   }
 
+  function isPlayerInAnyLobby(playerId) {
+    let found = false;
+    lobbies.forEach((lobby) => {
+      if (lobby.players.some(p => p.id === playerId)) found = true;
+    });
+    return found;
+  }
+
   function handleMessage(playerId, msg) {
     const player = players.get(playerId);
     if (!player) return;
 
     switch (msg.type) {
       case 'enter_lobby_area': {
-        // Player teleported from museum to lobby void
-        // Remove from museum, add to lobby room
         broadcastToRoom('museum', { type: 'player_leave', id: playerId }, playerId);
-        player.room = 'lobby';
-        // Send current lobby list
+        changeRoom(playerId, 'lobby');
         sendTo(playerId, {
           type: 'lobby_entered',
           lobbies: getOpenLobbies(),
@@ -45,22 +63,32 @@ function setupLobbyManager(players, broadcastToRoom, sendTo) {
       }
 
       case 'leave_lobby_area': {
-        // Player going back to museum
-        // Clean up any lobby they created
+        // Clean up any lobby they created or are in
         lobbies.forEach((lobby, lobbyId) => {
           if (lobby.creatorId === playerId && lobby.status === 'waiting') {
+            // Notify other players in the lobby
+            lobby.players.forEach(p => {
+              if (p.id !== playerId) {
+                sendTo(p.id, { type: 'lobby_cancelled' });
+              }
+            });
             lobbies.delete(lobbyId);
+          } else if (lobby.status === 'waiting') {
+            // Remove player from lobby they joined
+            const idx = lobby.players.findIndex(p => p.id === playerId);
+            if (idx !== -1) {
+              lobby.players.splice(idx, 1);
+              // Notify remaining players
+              lobby.players.forEach(p => {
+                sendTo(p.id, { type: 'lobby_player_left', playerId, players: lobby.players });
+              });
+            }
           }
         });
-        player.room = 'museum';
-        // Notify museum players of rejoin
-        const museumPlayers = [];
-        players.forEach((p) => {
-          if (p.room === 'museum') museumPlayers.push(p.state);
-        });
+        changeRoom(playerId, 'museum');
         sendTo(playerId, {
           type: 'returned_to_museum',
-          players: museumPlayers,
+          players: getMuseumPlayers(),
         });
         broadcastToRoom('museum', { type: 'player_join', player: player.state }, playerId);
         broadcastLobbyList();
@@ -68,31 +96,39 @@ function setupLobbyManager(players, broadcastToRoom, sendTo) {
       }
 
       case 'create_lobby': {
-        // Check player isn't already in a lobby
-        let alreadyInLobby = false;
-        lobbies.forEach((lobby) => {
-          if (lobby.creatorId === playerId || lobby.guestId === playerId) {
-            alreadyInLobby = true;
-          }
-        });
-        if (alreadyInLobby) {
+        if (isPlayerInAnyLobby(playerId)) {
           sendTo(playerId, { type: 'lobby_error', message: 'You are already in a lobby' });
           break;
         }
 
+        const mode = msg.mode === '2v2' ? '2v2' : '1v1';
+        const isPrivate = !!msg.isPrivate;
+        const maxPlayers = mode === '2v2' ? 4 : 2;
         const lobbyId = nextLobbyId++;
-        lobbies.set(lobbyId, {
+        const code = isPrivate ? generateLobbyCode() : null;
+
+        const lobby = {
           id: lobbyId,
+          mode,
+          isPrivate,
+          code,
           creatorId: playerId,
           creatorName: player.state.name,
-          guestId: null,
-          guestName: null,
-          status: 'waiting', // waiting | full | in_game
-        });
+          players: [{ id: playerId, name: player.state.name, team: 1 }],
+          maxPlayers,
+          status: 'waiting',
+          matchCreated: false,
+        };
+        lobbies.set(lobbyId, lobby);
 
         sendTo(playerId, {
           type: 'lobby_created',
           lobbyId,
+          mode,
+          isPrivate,
+          code,
+          maxPlayers,
+          players: lobby.players,
         });
 
         broadcastLobbyList();
@@ -110,38 +146,77 @@ function setupLobbyManager(players, broadcastToRoom, sendTo) {
           sendTo(playerId, { type: 'lobby_error', message: 'Lobby is no longer available' });
           break;
         }
-        if (lobby.creatorId === playerId) {
-          sendTo(playerId, { type: 'lobby_error', message: 'Cannot join your own lobby' });
+        if (lobby.players.some(p => p.id === playerId)) {
+          sendTo(playerId, { type: 'lobby_error', message: 'You are already in this lobby' });
+          break;
+        }
+        if (lobby.players.length >= lobby.maxPlayers) {
+          sendTo(playerId, { type: 'lobby_error', message: 'Lobby is full' });
+          break;
+        }
+        if (isPlayerInAnyLobby(playerId)) {
+          sendTo(playerId, { type: 'lobby_error', message: 'Leave your current lobby first' });
           break;
         }
 
-        lobby.guestId = playerId;
-        lobby.guestName = player.state.name;
-        lobby.status = 'in_game';
+        // Assign team for 2v2 (balance teams)
+        let team = 1;
+        if (lobby.mode === '2v2') {
+          const team1Count = lobby.players.filter(p => p.team === 1).length;
+          const team2Count = lobby.players.filter(p => p.team === 2).length;
+          team = team1Count <= team2Count ? 1 : 2;
+        }
 
-        // Notify both players that game is starting
-        sendTo(lobby.creatorId, {
-          type: 'game_starting',
-          lobbyId,
-          opponentName: lobby.guestName,
-          opponentId: lobby.guestId,
-          role: 'creator',
+        lobby.players.push({ id: playerId, name: player.state.name, team });
+
+        // Notify all lobby players about the update
+        lobby.players.forEach(p => {
+          sendTo(p.id, {
+            type: 'lobby_player_joined',
+            lobbyId,
+            players: lobby.players,
+            mode: lobby.mode,
+            maxPlayers: lobby.maxPlayers,
+          });
         });
-        sendTo(lobby.guestId, {
-          type: 'game_starting',
-          lobbyId,
-          opponentName: lobby.creatorName,
-          opponentId: lobby.creatorId,
-          role: 'guest',
-        });
+
+        // Check if lobby is full → start game
+        if (lobby.players.length >= lobby.maxPlayers) {
+          startGame(lobby);
+        }
 
         broadcastLobbyList();
+        break;
+      }
+
+      case 'join_private': {
+        const code = (msg.code || '').toUpperCase().trim();
+        if (!code) {
+          sendTo(playerId, { type: 'lobby_error', message: 'Please enter a lobby code' });
+          break;
+        }
+        let foundLobby = null;
+        lobbies.forEach(lobby => {
+          if (lobby.code === code && lobby.status === 'waiting') foundLobby = lobby;
+        });
+        if (!foundLobby) {
+          sendTo(playerId, { type: 'lobby_error', message: 'Invalid lobby code' });
+          break;
+        }
+        // Re-use join_lobby logic
+        handleMessage(playerId, { type: 'join_lobby', lobbyId: foundLobby.id });
         break;
       }
 
       case 'cancel_lobby': {
         lobbies.forEach((lobby, lobbyId) => {
           if (lobby.creatorId === playerId && lobby.status === 'waiting') {
+            // Notify other players
+            lobby.players.forEach(p => {
+              if (p.id !== playerId) {
+                sendTo(p.id, { type: 'lobby_cancelled' });
+              }
+            });
             lobbies.delete(lobbyId);
           }
         });
@@ -150,8 +225,31 @@ function setupLobbyManager(players, broadcastToRoom, sendTo) {
         break;
       }
 
+      case 'leave_current_lobby': {
+        lobbies.forEach((lobby, lobbyId) => {
+          if (lobby.status !== 'waiting') return;
+          const idx = lobby.players.findIndex(p => p.id === playerId);
+          if (idx === -1) return;
+
+          if (lobby.creatorId === playerId) {
+            // Creator leaving = destroy lobby
+            lobby.players.forEach(p => {
+              if (p.id !== playerId) sendTo(p.id, { type: 'lobby_cancelled' });
+            });
+            lobbies.delete(lobbyId);
+          } else {
+            lobby.players.splice(idx, 1);
+            lobby.players.forEach(p => {
+              sendTo(p.id, { type: 'lobby_player_left', playerId, players: lobby.players });
+            });
+          }
+        });
+        sendTo(playerId, { type: 'lobby_cancelled' });
+        broadcastLobbyList();
+        break;
+      }
+
       case 'update': {
-        // Position updates while in lobby (for void scene)
         const p = player.state;
         p.x = msg.x;
         p.y = msg.y;
@@ -163,11 +261,71 @@ function setupLobbyManager(players, broadcastToRoom, sendTo) {
     }
   }
 
+  function startGame(lobby) {
+    lobby.status = 'in_game';
+
+    if (lobby.mode === '1v1') {
+      // Classic 1v1
+      const p1 = lobby.players[0];
+      const p2 = lobby.players[1];
+      sendTo(p1.id, {
+        type: 'game_starting',
+        lobbyId: lobby.id,
+        mode: '1v1',
+        opponentName: p2.name,
+        opponentId: p2.id,
+        role: 'creator',
+      });
+      sendTo(p2.id, {
+        type: 'game_starting',
+        lobbyId: lobby.id,
+        mode: '1v1',
+        opponentName: p1.name,
+        opponentId: p1.id,
+        role: 'guest',
+      });
+    } else if (lobby.mode === '2v2') {
+      const team1 = lobby.players.filter(p => p.team === 1);
+      const team2 = lobby.players.filter(p => p.team === 2);
+      // Send game_starting to all 4 players with team info
+      lobby.players.forEach(p => {
+        const myTeam = p.team;
+        const teammate = lobby.players.find(t => t.team === myTeam && t.id !== p.id);
+        const enemies = lobby.players.filter(t => t.team !== myTeam);
+        sendTo(p.id, {
+          type: 'game_starting',
+          lobbyId: lobby.id,
+          mode: '2v2',
+          team: myTeam,
+          teammateName: teammate ? teammate.name : null,
+          teammateId: teammate ? teammate.id : null,
+          enemies: enemies.map(e => ({ id: e.id, name: e.name })),
+          allPlayers: lobby.players,
+          role: p.id === lobby.creatorId ? 'creator' : 'guest',
+        });
+      });
+    }
+
+    broadcastLobbyList();
+  }
+
   function handleDisconnect(playerId) {
-    // Remove any lobbies created by this player
     lobbies.forEach((lobby, lobbyId) => {
-      if (lobby.creatorId === playerId && lobby.status === 'waiting') {
-        lobbies.delete(lobbyId);
+      if (lobby.status === 'waiting') {
+        if (lobby.creatorId === playerId) {
+          lobby.players.forEach(p => {
+            if (p.id !== playerId) sendTo(p.id, { type: 'lobby_cancelled' });
+          });
+          lobbies.delete(lobbyId);
+        } else {
+          const idx = lobby.players.findIndex(p => p.id === playerId);
+          if (idx !== -1) {
+            lobby.players.splice(idx, 1);
+            lobby.players.forEach(p => {
+              sendTo(p.id, { type: 'lobby_player_left', playerId, players: lobby.players });
+            });
+          }
+        }
       }
     });
     broadcastLobbyList();

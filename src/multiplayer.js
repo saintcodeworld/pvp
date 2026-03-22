@@ -22,6 +22,8 @@ export function setMultiplayerCamera(cam) {
   camera = cam;
 }
 
+export function getMyId() { return myPlayerId; }
+
 export function setMyPlayerName(name) {
   myPlayerName = name;
 }
@@ -29,7 +31,7 @@ export function setMyPlayerName(name) {
 // ─── CONNECT ────────────────────────────────────────────────────────
 export function connectWebSocket() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${location.hostname}:3000`;
+  const wsUrl = `${protocol}//${location.host}`;
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {

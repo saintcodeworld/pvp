@@ -3,14 +3,18 @@ import { ws } from './multiplayer.js';
 
 // ─── LOBBY STATE ────────────────────────────────────────────────────
 let inLobby = false;
-let myLobbyId = null; // lobby I created (if any)
+let myLobbyId = null;
 let lobbyList = [];
-let onGameStart = null; // callback when game starts
+let onGameStart = null;
+let currentLobbyPlayers = [];
+let currentLobbyMode = '1v1';
+let currentLobbyCode = null;
+let currentView = 'main'; // 'main' | 'waiting' | 'room'
 
 export function isInLobby() { return inLobby; }
 
 // ─── VOID SCENE OBJECTS ─────────────────────────────────────────────
-let voidGroup = null; // THREE.Group added to scene
+let voidGroup = null;
 let voidStars = null;
 let scene = null;
 
@@ -21,21 +25,18 @@ function createVoidEnvironment() {
   voidGroup = new THREE.Group();
   voidGroup.visible = false;
 
-  // Floating platform
   const platGeo = new THREE.BoxGeometry(6, 0.5, 6);
   const platMat = new THREE.MeshLambertMaterial({ color: 0x1a1a2e });
   const platform = new THREE.Mesh(platGeo, platMat);
   platform.position.set(0, -0.25, 0);
   voidGroup.add(platform);
 
-  // Platform edge glow
   const edgeGeo = new THREE.BoxGeometry(6.2, 0.1, 6.2);
   const edgeMat = new THREE.MeshBasicMaterial({ color: 0x9933ff, transparent: true, opacity: 0.6 });
   const edge = new THREE.Mesh(edgeGeo, edgeMat);
   edge.position.set(0, 0.01, 0);
   voidGroup.add(edge);
 
-  // Ambient purple light
   const purpleLight = new THREE.PointLight(0x9933ff, 2, 20);
   purpleLight.position.set(0, 5, 0);
   voidGroup.add(purpleLight);
@@ -43,7 +44,6 @@ function createVoidEnvironment() {
   const dimLight = new THREE.AmbientLight(0x222244, 0.5);
   voidGroup.add(dimLight);
 
-  // Stars / particles in void
   const starCount = 500;
   const starGeo = new THREE.BufferGeometry();
   const starPositions = new Float32Array(starCount * 3);
@@ -71,16 +71,15 @@ export function enterLobby(gameStartCallback) {
   onGameStart = gameStartCallback;
   inLobby = true;
   myLobbyId = null;
+  currentView = 'main';
 
   createVoidEnvironment();
   voidGroup.visible = true;
 
-  // Tell server we're entering lobby area
   if (ws && ws.readyState === 1) {
     ws.send(JSON.stringify({ type: 'enter_lobby_area' }));
   }
 
-  // Show lobby UI
   showLobbyUI();
 }
 
@@ -90,7 +89,6 @@ export function exitLobby() {
 
   if (voidGroup) voidGroup.visible = false;
 
-  // Tell server we're leaving lobby
   if (ws && ws.readyState === 1) {
     ws.send(JSON.stringify({ type: 'leave_lobby_area' }));
   }
@@ -103,24 +101,62 @@ function showLobbyUI() {
   const ui = document.getElementById('lobby-ui');
   if (ui) {
     ui.style.display = 'flex';
-    updateLobbyListUI();
+    showMainView();
   }
 }
 
 function hideLobbyUI() {
   const ui = document.getElementById('lobby-ui');
   if (ui) ui.style.display = 'none';
-  hideWaitingUI();
+  hideAllViews();
 }
 
-function showWaitingUI() {
-  const el = document.getElementById('lobby-waiting');
-  if (el) el.style.display = 'flex';
+function hideAllViews() {
+  ['lobby-main-view', 'lobby-waiting', 'lobby-room-view'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
 }
 
-function hideWaitingUI() {
+function showMainView() {
+  hideAllViews();
+  currentView = 'main';
+  const el = document.getElementById('lobby-main-view');
+  if (el) el.style.display = 'block';
+  updateLobbyListUI();
+}
+
+function showWaitingUI(mode, code) {
+  hideAllViews();
+  currentView = 'waiting';
   const el = document.getElementById('lobby-waiting');
-  if (el) el.style.display = 'none';
+  if (el) {
+    el.style.display = 'flex';
+    const modeEl = document.getElementById('lobby-waiting-mode');
+    if (modeEl) modeEl.textContent = mode.toUpperCase();
+    const codeEl = document.getElementById('lobby-waiting-code');
+    if (codeEl) {
+      if (code) {
+        codeEl.style.display = 'block';
+        codeEl.textContent = `Code: ${code}`;
+      } else {
+        codeEl.style.display = 'none';
+      }
+    }
+  }
+  updateRoomPlayersUI();
+}
+
+function updateRoomPlayersUI() {
+  const el = document.getElementById('lobby-room-players');
+  if (!el) return;
+  const maxP = currentLobbyMode === '2v2' ? 4 : 2;
+  el.innerHTML = `<div style="margin-bottom:8px;color:#f5a623;">${currentLobbyPlayers.length}/${maxP} Players</div>` +
+    currentLobbyPlayers.map(p =>
+      `<div style="color:${p.team === 1 ? '#44aaff' : '#ff4444'};padding:2px 0;">
+        ${escapeHtml(p.name)} ${currentLobbyMode === '2v2' ? '(Team ' + p.team + ')' : ''}
+      </div>`
+    ).join('');
 }
 
 function updateLobbyListUI() {
@@ -135,11 +171,12 @@ function updateLobbyListUI() {
   listEl.innerHTML = lobbyList.map(lobby => `
     <div class="lobby-item">
       <span class="lobby-creator">${escapeHtml(lobby.creatorName)}'s Lobby</span>
+      <span class="lobby-mode-badge">${lobby.mode}</span>
+      <span class="lobby-players-count">${lobby.playerCount}/${lobby.maxPlayers}</span>
       <button class="lobby-join-btn" data-id="${lobby.id}">JOIN</button>
     </div>
   `).join('');
 
-  // Attach join handlers
   listEl.querySelectorAll('.lobby-join-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const lobbyId = parseInt(btn.dataset.id);
@@ -153,9 +190,10 @@ function escapeHtml(str) {
 }
 
 // ─── LOBBY ACTIONS ──────────────────────────────────────────────────
-export function createLobby() {
+export function createLobby(mode = '1v1', isPrivate = false) {
   if (!ws || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({ type: 'create_lobby' }));
+  currentLobbyMode = mode;
+  ws.send(JSON.stringify({ type: 'create_lobby', mode, isPrivate }));
 }
 
 function joinLobby(lobbyId) {
@@ -163,12 +201,16 @@ function joinLobby(lobbyId) {
   ws.send(JSON.stringify({ type: 'join_lobby', lobbyId }));
 }
 
+function joinPrivate(code) {
+  if (!ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ type: 'join_private', code }));
+}
+
 export function cancelLobby() {
   if (!ws || ws.readyState !== 1) return;
   ws.send(JSON.stringify({ type: 'cancel_lobby' }));
   myLobbyId = null;
-  hideWaitingUI();
-  showLobbyUI();
+  showMainView();
 }
 
 // ─── HANDLE SERVER MESSAGES ─────────────────────────────────────────
@@ -182,7 +224,7 @@ export function handleLobbyMessage(msg) {
 
     case 'lobby_list': {
       lobbyList = msg.lobbies || [];
-      if (inLobby && !myLobbyId) {
+      if (inLobby && currentView === 'main') {
         updateLobbyListUI();
       }
       break;
@@ -190,15 +232,31 @@ export function handleLobbyMessage(msg) {
 
     case 'lobby_created': {
       myLobbyId = msg.lobbyId;
-      hideLobbyUI();
-      showWaitingUI();
+      currentLobbyMode = msg.mode || '1v1';
+      currentLobbyCode = msg.code || null;
+      currentLobbyPlayers = msg.players || [];
+      showWaitingUI(currentLobbyMode, currentLobbyCode);
+      break;
+    }
+
+    case 'lobby_player_joined': {
+      currentLobbyPlayers = msg.players || [];
+      currentLobbyMode = msg.mode || currentLobbyMode;
+      updateRoomPlayersUI();
+      break;
+    }
+
+    case 'lobby_player_left': {
+      currentLobbyPlayers = msg.players || [];
+      updateRoomPlayersUI();
       break;
     }
 
     case 'lobby_cancelled': {
       myLobbyId = null;
-      hideWaitingUI();
-      showLobbyUI();
+      currentLobbyPlayers = [];
+      currentLobbyCode = null;
+      if (inLobby) showMainView();
       break;
     }
 
@@ -212,18 +270,24 @@ export function handleLobbyMessage(msg) {
     }
 
     case 'game_starting': {
-      // Both players matched — transition to arena
       hideLobbyUI();
-      hideWaitingUI();
       if (voidGroup) voidGroup.visible = false;
       inLobby = false;
 
       if (onGameStart) {
         onGameStart({
           lobbyId: msg.lobbyId,
+          mode: msg.mode || '1v1',
+          // 1v1 fields
           opponentName: msg.opponentName,
           opponentId: msg.opponentId,
           role: msg.role,
+          // 2v2 fields
+          team: msg.team,
+          teammateName: msg.teammateName,
+          teammateId: msg.teammateId,
+          enemies: msg.enemies,
+          allPlayers: msg.allPlayers,
         });
       }
       break;
@@ -240,21 +304,54 @@ export function updateVoidScene(time) {
 
 // ─── INIT LOBBY UI BUTTONS ─────────────────────────────────────────
 export function initLobbyUI() {
-  const createBtn = document.getElementById('lobby-create-btn');
-  const backBtn = document.getElementById('lobby-back-btn');
-  const cancelBtn = document.getElementById('lobby-cancel-btn');
-
-  if (createBtn) {
-    createBtn.addEventListener('click', createLobby);
+  // Create 1v1 button
+  const create1v1Btn = document.getElementById('lobby-create-1v1');
+  if (create1v1Btn) {
+    create1v1Btn.addEventListener('click', () => createLobby('1v1', false));
   }
+
+  // Create 2v2 button
+  const create2v2Btn = document.getElementById('lobby-create-2v2');
+  if (create2v2Btn) {
+    create2v2Btn.addEventListener('click', () => createLobby('2v2', false));
+  }
+
+  // Private 1v1
+  const createPrivate1v1 = document.getElementById('lobby-create-private-1v1');
+  if (createPrivate1v1) {
+    createPrivate1v1.addEventListener('click', () => createLobby('1v1', true));
+  }
+
+  // Private 2v2
+  const createPrivate2v2 = document.getElementById('lobby-create-private-2v2');
+  if (createPrivate2v2) {
+    createPrivate2v2.addEventListener('click', () => createLobby('2v2', true));
+  }
+
+  // Join private by code
+  const joinPrivateBtn = document.getElementById('lobby-join-private-btn');
+  if (joinPrivateBtn) {
+    joinPrivateBtn.addEventListener('click', () => {
+      const input = document.getElementById('lobby-private-code');
+      if (input && input.value.trim()) {
+        joinPrivate(input.value.trim());
+        input.value = '';
+      }
+    });
+  }
+
+  // Back button
+  const backBtn = document.getElementById('lobby-back-btn');
   if (backBtn) {
     backBtn.addEventListener('click', () => {
       exitLobby();
-      // Main.js will handle returning to museum
       const event = new CustomEvent('lobby-exit');
       window.dispatchEvent(event);
     });
   }
+
+  // Cancel button (in waiting view)
+  const cancelBtn = document.getElementById('lobby-cancel-btn');
   if (cancelBtn) {
     cancelBtn.addEventListener('click', cancelLobby);
   }

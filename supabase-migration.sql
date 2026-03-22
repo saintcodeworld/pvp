@@ -52,7 +52,33 @@ CREATE POLICY "Server can insert match results"
   ON public.match_results FOR INSERT
   WITH CHECK (true);
 
--- 3. Auto-create profile on user signup via trigger
+-- 3. Add game_mode column to match_results (for 1v1 vs 2v2 filtering)
+ALTER TABLE public.match_results ADD COLUMN IF NOT EXISTS game_mode TEXT DEFAULT '1v1';
+
+-- 4. Free-For-All results table
+CREATE TABLE IF NOT EXISTS public.ffa_results (
+  id BIGSERIAL PRIMARY KEY,
+  player_name TEXT NOT NULL,
+  placement INTEGER NOT NULL,        -- 1 = winner, 2-8 = order of elimination
+  kills INTEGER NOT NULL DEFAULT 0,
+  total_players INTEGER NOT NULL DEFAULT 8,
+  played_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Enable RLS
+ALTER TABLE public.ffa_results ENABLE ROW LEVEL SECURITY;
+
+-- Everyone can read FFA results (for leaderboard)
+CREATE POLICY "FFA results are viewable by everyone"
+  ON public.ffa_results FOR SELECT
+  USING (true);
+
+-- Server (anon key) can insert FFA results
+CREATE POLICY "Server can insert FFA results"
+  ON public.ffa_results FOR INSERT
+  WITH CHECK (true);
+
+-- 5. Auto-create profile on user signup via trigger
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
