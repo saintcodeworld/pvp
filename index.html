@@ -3,42 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chuck Norris Memorial Museum</title>
+  <title>PVP Wars — Memecoin Arena</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
     canvas { display: block; }
 
-    #blocker {
-      position: fixed; inset: 0; z-index: 100;
-      background: rgba(0,0,0,0.85);
-      display: flex; align-items: center; justify-content: center;
-      flex-direction: column; cursor: pointer;
-    }
-    #blocker h1 {
-      font-size: 3rem; color: #f5a623; text-transform: uppercase;
-      text-shadow: 3px 3px 0 #000; letter-spacing: 4px; margin-bottom: 10px;
-      font-family: 'Courier New', monospace;
-    }
-    #blocker h2 {
-      font-size: 1.2rem; color: #ccc; margin-bottom: 30px;
-      font-family: 'Courier New', monospace;
-    }
-    #blocker .subtitle {
-      font-size: 1rem; color: #f5a623; margin-bottom: 40px;
-      animation: pulse 2s infinite;
-    }
-    #blocker .controls {
-      color: #aaa; font-size: 0.85rem; line-height: 2;
-      text-align: center; background: rgba(0,0,0,0.5);
-      padding: 20px 40px; border: 1px solid #333; border-radius: 4px;
-    }
-    #blocker .controls span { color: #f5a623; font-weight: bold; }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
-
+    
     #crosshair {
       position: fixed; top: 50%; left: 50%;
       transform: translate(-50%, -50%);
@@ -128,42 +99,7 @@
     #loading .bar-fg { height: 100%; background: #f5a623; width: 0%; transition: width 0.3s; }
     #loading p { margin-top: 10px; color: #888; font-size: 0.8rem; }
 
-    /* ─── MULTIPLAYER UI ─── */
-    #name-overlay {
-      position: fixed; inset: 0; z-index: 300;
-      background: rgba(0,0,0,0.92);
-      display: flex; align-items: center; justify-content: center;
-      flex-direction: column;
-    }
-    #name-overlay h1 {
-      font-size: 2.2rem; color: #f5a623; text-transform: uppercase;
-      letter-spacing: 4px; margin-bottom: 6px;
-      font-family: 'Courier New', monospace;
-    }
-    #name-overlay h2 {
-      font-size: 1rem; color: #888; margin-bottom: 28px;
-      font-family: 'Courier New', monospace;
-    }
-    #name-overlay input {
-      font-family: 'Courier New', monospace;
-      font-size: 1.2rem; padding: 10px 20px;
-      background: #222; border: 2px solid #f5a623; color: #fff;
-      text-align: center; width: 260px; border-radius: 4px;
-      outline: none;
-    }
-    #name-overlay input::placeholder { color: #666; }
-    #name-overlay button {
-      margin-top: 16px; padding: 10px 36px;
-      background: #f5a623; color: #111; border: none;
-      font-family: 'Courier New', monospace;
-      font-size: 1rem; font-weight: bold; cursor: pointer;
-      text-transform: uppercase; letter-spacing: 2px;
-      border-radius: 4px; transition: background 0.2s;
-    }
-    #name-overlay button:hover { background: #ffc040; }
-    #name-overlay .note {
-      margin-top: 14px; color: #555; font-size: 0.75rem;
-    }
+
 
     #player-count {
       position: fixed; top: 15px; left: 50%; transform: translateX(-50%);
@@ -204,37 +140,309 @@
       color: #fff; font-family: 'Courier New', monospace;
       font-size: 0.8rem; border-radius: 3px; outline: none;
     }
+
+    /* ─── LOBBY UI ─── */
+    #lobby-ui {
+      position: fixed; inset: 0; z-index: 80;
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column;
+      pointer-events: none;
+    }
+    #lobby-ui .lobby-panel {
+      background: rgba(10,8,20,0.95); border: 2px solid #9933ff;
+      border-radius: 8px; padding: 30px 40px; width: 400px;
+      max-height: 70vh; overflow-y: auto;
+      pointer-events: all;
+    }
+    #lobby-ui h2 {
+      color: #cc44ff; font-size: 1.4rem; text-align: center;
+      text-transform: uppercase; letter-spacing: 3px; margin-bottom: 20px;
+      font-family: 'Courier New', monospace;
+    }
+    #lobby-list {
+      margin-bottom: 16px; max-height: 200px; overflow-y: auto;
+    }
+    .lobby-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 14px; background: rgba(100,50,180,0.15);
+      border: 1px solid #553388; border-radius: 4px; margin-bottom: 6px;
+    }
+    .lobby-creator {
+      color: #eee; font-size: 0.9rem;
+      font-family: 'Courier New', monospace;
+    }
+    .lobby-join-btn {
+      padding: 6px 18px; background: #9933ff; color: #fff;
+      border: none; border-radius: 3px; cursor: pointer;
+      font-family: 'Courier New', monospace; font-size: 0.8rem;
+      font-weight: bold; text-transform: uppercase;
+    }
+    .lobby-join-btn:hover { background: #aa55ff; }
+    .lobby-empty {
+      color: #666; text-align: center; padding: 20px;
+      font-style: italic; font-size: 0.85rem;
+    }
+    .lobby-btn {
+      width: 100%; padding: 12px; margin-bottom: 8px;
+      font-family: 'Courier New', monospace; font-size: 0.9rem;
+      font-weight: bold; border: none; border-radius: 4px;
+      cursor: pointer; text-transform: uppercase; letter-spacing: 1px;
+    }
+    .lobby-btn.create { background: #9933ff; color: #fff; }
+    .lobby-btn.create:hover { background: #aa55ff; }
+    .lobby-btn.back { background: #333; color: #ccc; border: 1px solid #555; }
+    .lobby-btn.back:hover { background: #444; }
+    #lobby-status {
+      color: #ff4444; text-align: center; font-size: 0.8rem;
+      min-height: 18px; margin-top: 8px;
+    }
+
+    /* Waiting for opponent */
+    #lobby-waiting {
+      position: fixed; inset: 0; z-index: 85;
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; pointer-events: none;
+    }
+    #lobby-waiting .waiting-box {
+      background: rgba(10,8,20,0.95); border: 2px solid #9933ff;
+      border-radius: 8px; padding: 40px; text-align: center;
+      pointer-events: all;
+    }
+    #lobby-waiting h3 {
+      color: #cc44ff; font-size: 1.2rem; margin-bottom: 16px;
+      font-family: 'Courier New', monospace;
+    }
+    .waiting-dots {
+      color: #9933ff; font-size: 2rem;
+      animation: dots 1.5s infinite;
+    }
+    @keyframes dots {
+      0%, 20% { content: '.'; }
+      40% { content: '..'; }
+      60%, 100% { content: '...'; }
+    }
+    .lobby-btn.cancel { background: #553333; color: #ff6666; border: 1px solid #aa3333; margin-top: 20px; }
+    .lobby-btn.cancel:hover { background: #663333; }
+
+    /* ─── COMBAT HUD ─── */
+    #combat-hud {
+      position: fixed; top: 0; left: 0; right: 0;
+      z-index: 70; display: none;
+      pointer-events: none;
+    }
+    .hp-container {
+      display: flex; justify-content: center; gap: 40px;
+      padding: 12px 20px;
+    }
+    .hp-bar-wrap {
+      width: 200px;
+    }
+    .hp-label {
+      color: #eee; font-size: 0.75rem; font-family: 'Courier New', monospace;
+      margin-bottom: 3px; display: flex; justify-content: space-between;
+    }
+    .hp-bar-bg {
+      width: 100%; height: 16px; background: #222;
+      border: 1px solid #555; border-radius: 2px; overflow: hidden;
+    }
+    .hp-bar-fg {
+      height: 100%; background: #00cc44; transition: width 0.2s, background 0.2s;
+    }
+    #round-display {
+      text-align: center; color: #f5a623;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem; padding: 4px; letter-spacing: 1px;
+    }
+
+    #combat-countdown {
+      position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
+      z-index: 75; display: none;
+      font-size: 6rem; color: #cc44ff; font-family: 'Courier New', monospace;
+      font-weight: bold; text-shadow: 0 0 30px rgba(153,51,255,0.6);
+      pointer-events: none;
+    }
+
+    #combat-overlay {
+      position: fixed; inset: 0; z-index: 72;
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; pointer-events: none;
+    }
+    .combat-splash {
+      font-size: 3rem; font-family: 'Courier New', monospace;
+      font-weight: bold; text-transform: uppercase;
+      letter-spacing: 4px; text-shadow: 0 0 20px rgba(0,0,0,0.8);
+    }
+    .combat-splash.win { color: #00ff88; }
+    .combat-splash.lose { color: #ff4444; }
+    .combat-result {
+      color: #ccc; font-size: 1.1rem; margin-top: 16px;
+      text-align: center; font-family: 'Courier New', monospace;
+    }
+
+    #damage-flash {
+      position: fixed; inset: 0; z-index: 71;
+      background: rgba(255,0,0,0.3); pointer-events: none;
+      opacity: 0; transition: opacity 0.1s;
+    }
+
+    #blocker {
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,0.85);
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; cursor: pointer;
+    }
+    #blocker h1 {
+      font-size: 3rem; color: #f5a623; text-transform: uppercase;
+      text-shadow: 3px 3px 0 #000; letter-spacing: 4px; margin-bottom: 10px;
+      font-family: 'Courier New', monospace;
+    }
+    #blocker h2 {
+      font-size: 1.2rem; color: #ccc; margin-bottom: 30px;
+      font-family: 'Courier New', monospace;
+    }
+    #blocker .subtitle {
+      font-size: 1rem; color: #f5a623; margin-bottom: 40px;
+      animation: pulse 2s infinite;
+    }
+    #blocker .controls {
+      color: #aaa; font-size: 0.85rem; line-height: 2;
+      text-align: center; background: rgba(0,0,0,0.5);
+      padding: 20px 40px; border: 1px solid #333; border-radius: 4px;
+    }
+    #blocker .controls span { color: #f5a623; font-weight: bold; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ─── AUTH OVERLAY ─── */
+    #auth-overlay {
+      position: fixed; inset: 0; z-index: 300;
+      background: linear-gradient(135deg, #0a0a1a 0%, #1a0a2e 50%, #0a0a1a 100%);
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column;
+    }
+    #auth-overlay.hidden { display: none; }
+    .auth-container {
+      background: rgba(15, 12, 25, 0.95);
+      border: 2px solid #f5a623;
+      border-radius: 8px;
+      padding: 40px;
+      width: 380px;
+      max-width: 90vw;
+    }
+    .auth-container h1 {
+      color: #f5a623; font-family: 'Courier New', monospace;
+      font-size: 1.5rem; text-align: center;
+      text-transform: uppercase; letter-spacing: 3px;
+      margin-bottom: 6px;
+    }
+    .auth-container h2 {
+      color: #888; font-family: 'Courier New', monospace;
+      font-size: 0.8rem; text-align: center;
+      margin-bottom: 24px;
+    }
+    .auth-tabs {
+      display: flex; gap: 0; margin-bottom: 20px;
+    }
+    .auth-tab {
+      flex: 1; padding: 10px; text-align: center;
+      background: rgba(50,50,50,0.4); color: #888;
+      border: 1px solid #333; cursor: pointer;
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem; font-weight: bold;
+      text-transform: uppercase; letter-spacing: 1px;
+      transition: all 0.2s;
+    }
+    .auth-tab:first-child { border-radius: 4px 0 0 4px; }
+    .auth-tab:last-child { border-radius: 0 4px 4px 0; }
+    .auth-tab.active {
+      background: rgba(245, 166, 35, 0.15);
+      color: #f5a623; border-color: #f5a623;
+    }
+    .auth-input {
+      width: 100%; padding: 10px 14px;
+      background: rgba(30,25,40,0.9);
+      border: 1px solid #444; border-radius: 4px;
+      color: #eee; font-family: 'Courier New', monospace;
+      font-size: 0.85rem; margin-bottom: 12px;
+      outline: none; transition: border-color 0.2s;
+    }
+    .auth-input:focus { border-color: #f5a623; }
+    .auth-input::placeholder { color: #555; }
+    .auth-submit {
+      width: 100%; padding: 12px;
+      background: #f5a623; color: #000;
+      border: none; border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9rem; font-weight: bold;
+      text-transform: uppercase; letter-spacing: 1px;
+      cursor: pointer; transition: background 0.2s;
+      margin-top: 4px;
+    }
+    .auth-submit:hover { background: #ffc04d; }
+    .auth-submit:disabled { background: #666; cursor: not-allowed; }
+    #auth-error {
+      color: #ff4444; font-size: 0.78rem;
+      text-align: center; min-height: 18px;
+      margin-top: 10px;
+      font-family: 'Courier New', monospace;
+    }
+    #auth-success {
+      color: #00cc44; font-size: 0.78rem;
+      text-align: center; min-height: 18px;
+      margin-top: 10px;
+      font-family: 'Courier New', monospace;
+    }
+    .auth-stars {
+      position: absolute; inset: 0;
+      overflow: hidden; pointer-events: none;
+    }
+    .auth-star {
+      position: absolute; width: 2px; height: 2px;
+      background: #fff; border-radius: 50%;
+      animation: twinkle 3s infinite;
+    }
+    @keyframes twinkle {
+      0%, 100% { opacity: 0.2; }
+      50% { opacity: 0.8; }
+    }
   </style>
 </head>
 <body>
-  <div id="loading">
+  <!-- AUTH OVERLAY -->
+  <div id="auth-overlay">
+    <div class="auth-stars" id="auth-stars"></div>
+    <div class="auth-container">
+      <h1>PVP Wars</h1>
+      <h2>Multiplayer Voxel Experience</h2>
+      <div class="auth-tabs">
+        <div class="auth-tab active" id="tab-signin" onclick="switchAuthTab('signin')">Sign In</div>
+        <div class="auth-tab" id="tab-signup" onclick="switchAuthTab('signup')">Sign Up</div>
+      </div>
+      <form id="auth-form" autocomplete="off">
+        <input type="text" class="auth-input" id="auth-username" placeholder="Username" maxlength="20" autocomplete="username">
+        <input type="password" class="auth-input" id="auth-password" placeholder="Password" minlength="6" autocomplete="current-password">
+        <button type="submit" class="auth-submit" id="auth-submit-btn">Sign In</button>
+      </form>
+      <div id="auth-error"></div>
+      <div id="auth-success"></div>
+    </div>
+  </div>
+
+  <div id="loading" style="display:none;">
     <h1 style="font-family:'Courier New',monospace;font-size:1.5rem;">LOADING MUSEUM...</h1>
     <div class="bar-bg"><div class="bar-fg" id="load-bar"></div></div>
     <p id="load-text">Initializing voxel engine...</p>
   </div>
 
-  <div id="blocker">
-    <h1>🏛️ Chuck Norris</h1>
-    <h2>Memorial Museum</h2>
-    <div class="subtitle">[ Click to Enter ]</div>
-    <div class="controls">
-      <span>W A S D</span> — Move &nbsp;|&nbsp;
-      <span>MOUSE</span> — Look Around<br>
-      <span>SPACE</span> — Jump &nbsp;|&nbsp;
-      <span>E</span> — Interact with Exhibits<br>
-      <span>ESC</span> — Pause &nbsp;|&nbsp;
-      <span>M</span> — Toggle Minimap<br>
-      <span>1-9</span> — Switch Hotbar Slot<br>
-      <span>T</span> — Chat
-    </div>
-  </div>
-
+  
   <div id="crosshair"></div>
 
   <div id="hud">
     <div class="hotbar">
       <div class="hotbar-slot active">✊</div>
-      <div class="hotbar-slot"><img src="public/sword-icon.svg" style="width: 32px; height: 32px;"></div>
+      <div class="hotbar-slot"><img src="/sword-icon.svg" style="width: 32px; height: 32px;"></div>
       <div class="hotbar-slot"></div>
       <div class="hotbar-slot"></div>
       <div class="hotbar-slot"></div>
@@ -261,13 +469,6 @@
     <button class="social-btn share" onclick="shareTo('clipboard')">🔗</button>
   </div>
 
-  <div id="name-overlay">
-    <h1>🏛️ Muzzeum</h1>
-    <h2>Multiplayer Museum</h2>
-    <input type="text" id="name-input" placeholder="Enter your name..." maxlength="20" autocomplete="off">
-    <button id="name-submit">Enter Museum</button>
-    <div class="note">Press ENTER or click the button</div>
-  </div>
 
   <div id="player-count">Players Online: 1</div>
 
@@ -278,14 +479,45 @@
     </div>
   </div>
 
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
-    }
-  }
-  </script>
-  <script type="module" src="main.js"></script>
+  <!-- LOBBY UI -->
+  <div id="lobby-ui">
+    <div class="lobby-panel">
+      <h2>⚔ PVP Wars</h2>
+      <div id="lobby-list"></div>
+      <button class="lobby-btn create" id="lobby-create-btn">Create Lobby</button>
+      <button class="lobby-btn back" id="lobby-back-btn">Back to Museum</button>
+      <div id="lobby-status"></div>
+    </div>
+  </div>
+
+  <!-- WAITING FOR OPPONENT -->
+  <div id="lobby-waiting">
+    <div class="waiting-box">
+      <h3>Waiting for opponent...</h3>
+      <div class="waiting-dots">...</div>
+      <button class="lobby-btn cancel" id="lobby-cancel-btn">Cancel</button>
+    </div>
+  </div>
+
+  <!-- COMBAT HUD -->
+  <div id="combat-hud">
+    <div class="hp-container">
+      <div class="hp-bar-wrap">
+        <div class="hp-label"><span>YOU</span><span id="my-hp-text">100%</span></div>
+        <div class="hp-bar-bg"><div class="hp-bar-fg" id="my-hp-bar" style="width:100%"></div></div>
+      </div>
+      <div class="hp-bar-wrap">
+        <div class="hp-label"><span>OPPONENT</span><span id="opp-hp-text">100%</span></div>
+        <div class="hp-bar-bg"><div class="hp-bar-fg" id="opp-hp-bar" style="width:100%"></div></div>
+      </div>
+    </div>
+    <div id="round-display">Round 1 / 3  |  0 - 0</div>
+  </div>
+
+  <div id="combat-countdown"></div>
+  <div id="combat-overlay"></div>
+  <div id="damage-flash"></div>
+
+  <script type="module" src="/src/main.js"></script>
 </body>
 </html>

@@ -1,12 +1,24 @@
 {
   "name": "muzzeum",
-  "version": "1.0.0",
-  "description": "Chuck Norris Memorial Museum - Multiplayer Voxel Web Game",
-  "main": "server.js",
+  "version": "2.0.0",
+  "description": "Chuck Norris Memorial Museum - Multiplayer Voxel Web Game with PVP Wars",
+  "type": "module",
+  "main": "server/index.js",
   "scripts": {
-    "start": "node server.js"
+    "dev": "concurrently \"node server/index.js\" \"npx vite\"",
+    "dev:server": "node server/index.js",
+    "dev:client": "npx vite",
+    "build": "vite build",
+    "start": "node server/index.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "dotenv": "^16.4.7",
+    "three": "^0.183.2",
     "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "vite": "^6.2.2"
   }
 }
