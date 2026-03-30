@@ -6,7 +6,7 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
-function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, changeRoom, getMuseumPlayers) {
+function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, changeRoom, getMuseumPlayers, payoutManager) {
   const matches = new Map(); // matchId -> match state
   const playerMatchIndex = new Map(); // playerId -> matchId (O(1) lookup)
 
@@ -208,10 +208,13 @@ function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, chan
     switch (msg.type) {
       case 'update': {
         const p = player.state;
-        p.x = msg.x; p.y = msg.y; p.z = msg.z;
-        p.yaw = msg.yaw; p.pitch = msg.pitch;
-        p.activeSlot = msg.activeSlot;
-        p.isSwinging = msg.isSwinging;
+        if (typeof msg.x === 'number' && Number.isFinite(msg.x)) p.x = Math.max(-200, Math.min(200, msg.x));
+        if (typeof msg.y === 'number' && Number.isFinite(msg.y)) p.y = Math.max(-20, Math.min(50, msg.y));
+        if (typeof msg.z === 'number' && Number.isFinite(msg.z)) p.z = Math.max(-200, Math.min(200, msg.z));
+        if (typeof msg.yaw === 'number' && Number.isFinite(msg.yaw)) p.yaw = Math.max(-Math.PI * 2, Math.min(Math.PI * 2, msg.yaw));
+        if (typeof msg.pitch === 'number' && Number.isFinite(msg.pitch)) p.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, msg.pitch));
+        if (typeof msg.activeSlot === 'number' && Number.isFinite(msg.activeSlot)) p.activeSlot = Math.max(0, Math.min(8, Math.trunc(msg.activeSlot)));
+        p.isSwinging = !!msg.isSwinging;
 
         // Forward to all other players in match
         match.playerIds.forEach(pid => {
@@ -385,6 +388,25 @@ function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, chan
         console.log(`[Combat] ${match.mode} match saved: ${winnerNames.join('&')} defeated ${loserNames.join('&')}`);
       } catch (err) {
         console.error('[Combat] Failed to save match result:', err.message);
+      }
+    }
+
+    if (payoutManager?.PAYOUT_ENABLED) {
+      try {
+        const winnerPayout = match.mode === '2v2'
+          ? payoutManager.PAYOUTS.pvp2v2WinEach
+          : payoutManager.PAYOUTS.pvp1v1Win;
+        const recipients = winnerIds.map((pid) => ({
+          playerName: match.playerNames[pid] || 'Unknown',
+          amountSol: winnerPayout,
+        }));
+        await payoutManager.queuePayouts(recipients, {
+          mode: match.mode,
+          reason: 'pvp_match_win',
+          matchId: match.id,
+        });
+      } catch (err) {
+        console.error('[Payout] Failed in PVP payout flow:', err.message);
       }
     }
 

@@ -259,11 +259,11 @@ function setupLobbyManager(players, broadcastToRoom, sendTo, changeRoom, getMuse
 
       case 'update': {
         const p = player.state;
-        p.x = msg.x;
-        p.y = msg.y;
-        p.z = msg.z;
-        p.yaw = msg.yaw;
-        p.pitch = msg.pitch;
+        if (typeof msg.x === 'number' && Number.isFinite(msg.x)) p.x = Math.max(-200, Math.min(200, msg.x));
+        if (typeof msg.y === 'number' && Number.isFinite(msg.y)) p.y = Math.max(-20, Math.min(50, msg.y));
+        if (typeof msg.z === 'number' && Number.isFinite(msg.z)) p.z = Math.max(-200, Math.min(200, msg.z));
+        if (typeof msg.yaw === 'number' && Number.isFinite(msg.yaw)) p.yaw = Math.max(-Math.PI * 2, Math.min(Math.PI * 2, msg.yaw));
+        if (typeof msg.pitch === 'number' && Number.isFinite(msg.pitch)) p.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, msg.pitch));
         break;
       }
     }

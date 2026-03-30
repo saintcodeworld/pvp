@@ -78,6 +78,37 @@ CREATE POLICY "Server can insert FFA results"
   ON public.ffa_results FOR INSERT
   WITH CHECK (true);
 
+CREATE TABLE IF NOT EXISTS public.payout_records (
+  id BIGSERIAL PRIMARY KEY,
+  player_name TEXT NOT NULL,
+  solana_wallet TEXT DEFAULT NULL,
+  amount_sol NUMERIC(18,9) NOT NULL CHECK (amount_sol > 0),
+  currency TEXT NOT NULL DEFAULT 'SOL',
+  game_mode TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  metadata JSONB DEFAULT '{}'::jsonb,
+  processing_started_at TIMESTAMPTZ DEFAULT NULL,
+  tx_signature TEXT DEFAULT NULL,
+  fail_reason TEXT DEFAULT NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  processed_at TIMESTAMPTZ DEFAULT NULL
+);
+
+ALTER TABLE public.payout_records ADD COLUMN IF NOT EXISTS processing_started_at TIMESTAMPTZ DEFAULT NULL;
+ALTER TABLE public.payout_records ADD COLUMN IF NOT EXISTS tx_signature TEXT DEFAULT NULL;
+ALTER TABLE public.payout_records ADD COLUMN IF NOT EXISTS fail_reason TEXT DEFAULT NULL;
+
+ALTER TABLE public.payout_records ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Payout records are viewable by everyone"
+  ON public.payout_records FOR SELECT
+  USING (true);
+
+CREATE POLICY "Server can insert payout records"
+  ON public.payout_records FOR INSERT
+  WITH CHECK (true);
+
 -- 5. Auto-create profile on user signup via trigger
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$

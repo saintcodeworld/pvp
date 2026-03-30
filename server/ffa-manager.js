@@ -11,7 +11,7 @@ const FFA_HEART_HP = 45;
 const FFA_HIT_DAMAGE = 10;
 const FFA_HIT_COOLDOWN = 300; // ms
 
-function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseumPlayers) {
+function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseumPlayers, payoutManager) {
   // Queue of players waiting for FFA
   const queue = []; // [{id, name}]
   // Active FFA matches
@@ -93,10 +93,13 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
       case 'update': {
         // Position update in FFA arena
         const p = player.state;
-        p.x = msg.x; p.y = msg.y; p.z = msg.z;
-        p.yaw = msg.yaw; p.pitch = msg.pitch;
-        p.activeSlot = msg.activeSlot;
-        p.isSwinging = msg.isSwinging;
+        if (typeof msg.x === 'number' && Number.isFinite(msg.x)) p.x = Math.max(-200, Math.min(200, msg.x));
+        if (typeof msg.y === 'number' && Number.isFinite(msg.y)) p.y = Math.max(-20, Math.min(50, msg.y));
+        if (typeof msg.z === 'number' && Number.isFinite(msg.z)) p.z = Math.max(-200, Math.min(200, msg.z));
+        if (typeof msg.yaw === 'number' && Number.isFinite(msg.yaw)) p.yaw = Math.max(-Math.PI * 2, Math.min(Math.PI * 2, msg.yaw));
+        if (typeof msg.pitch === 'number' && Number.isFinite(msg.pitch)) p.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, msg.pitch));
+        if (typeof msg.activeSlot === 'number' && Number.isFinite(msg.activeSlot)) p.activeSlot = Math.max(0, Math.min(8, Math.trunc(msg.activeSlot)));
+        p.isSwinging = !!msg.isSwinging;
 
         // Find match and forward to all other alive players
         const matchId = playerMatchIndex.get(playerId);
@@ -358,8 +361,8 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
       placements,
     });
 
-    // Save to Supabase
     saveFFAResults(placements);
+    queueFFAPayouts(match.id, placements);
 
     // Clean up bots
     if (botManager) botManager.cleanupBotsForMatch(match.playerIds);
@@ -403,6 +406,26 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
       console.log(`[FFA] Match results saved (${placements.length} players)`);
     } catch (err) {
       console.error('[FFA] Failed to save results:', err.message);
+    }
+  }
+
+  async function queueFFAPayouts(matchId, placements) {
+    if (!payoutManager?.PAYOUT_ENABLED || !Array.isArray(placements) || placements.length === 0) return;
+    try {
+      const recipients = [];
+      placements.forEach((p) => {
+        if (!p || typeof p.name !== 'string') return;
+        if (p.placement === 1) recipients.push({ playerName: p.name, amountSol: payoutManager.PAYOUTS.ffaFirst, placement: 1 });
+        if (p.placement === 2) recipients.push({ playerName: p.name, amountSol: payoutManager.PAYOUTS.ffaSecond, placement: 2 });
+        if (p.placement === 3) recipients.push({ playerName: p.name, amountSol: payoutManager.PAYOUTS.ffaThird, placement: 3 });
+      });
+      await payoutManager.queuePayouts(recipients, {
+        mode: 'ffa',
+        reason: 'ffa_placement',
+        matchId,
+      });
+    } catch (err) {
+      console.error('[Payout] Failed in FFA payout flow:', err.message);
     }
   }
 

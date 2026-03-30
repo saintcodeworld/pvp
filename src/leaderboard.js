@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { supabase } from './auth.js';
 import { museumGroup, interactables } from './museum.js';
 
 let scene;
@@ -34,37 +33,13 @@ function startLiveTimer() {
 export function getLeaderboardTab() { return activeTab; }
 
 // ─── FETCH PVP LEADERBOARD ─────────────────────────────────────────
-async function fetchPvpLeaderboard() {
+async function fetchPvpLeaderboard(forceRefresh = false) {
   try {
-    const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-    const { data, error } = await supabase
-      .from('match_results')
-      .select('winner_name, loser_name, winner_rounds, loser_rounds, played_at, game_mode')
-      .gte('played_at', cutoff)
-      .order('played_at', { ascending: false })
-      .limit(50);
-
-    if (error) { console.error('[LB] PVP fetch error:', error.message); return; }
-
-    const stats = new Map();
-    (data || []).forEach(match => {
-      if (!stats.has(match.winner_name)) stats.set(match.winner_name, { wins: 0, losses: 0 });
-      const w = stats.get(match.winner_name);
-      w.wins++;
-
-      if (!stats.has(match.loser_name)) stats.set(match.loser_name, { wins: 0, losses: 0 });
-      const l = stats.get(match.loser_name);
-      l.losses++;
-    });
-
-    pvpData = Array.from(stats.entries())
-      .map(([name, s]) => ({
-        name, wins: s.wins, losses: s.losses,
-        total: s.wins + s.losses,
-        winRate: s.wins / (s.wins + s.losses) * 100,
-      }))
-      .sort((a, b) => b.wins - a.wins || b.winRate - a.winRate)
-      .slice(0, 10);
+    const res = await fetch(`/api/leaderboard/pvp${forceRefresh ? '?refresh=1' : ''}`);
+    if (!res.ok) return;
+    const payload = await res.json();
+    if (!Array.isArray(payload?.data)) return;
+    pvpData = payload.data;
 
     lastPvpFetchTime = Date.now();
     pvpResetTime = Date.now() + 30 * 60000;
@@ -73,37 +48,13 @@ async function fetchPvpLeaderboard() {
 }
 
 // ─── FETCH FFA LEADERBOARD ──────────────────────────────────────────
-async function fetchFfaLeaderboard() {
+async function fetchFfaLeaderboard(forceRefresh = false) {
   try {
-    const cutoff = new Date(Date.now() - FFA_REFRESH_INTERVAL).toISOString();
-    const { data, error } = await supabase
-      .from('ffa_results')
-      .select('player_name, placement, kills, played_at')
-      .gte('played_at', cutoff)
-      .order('played_at', { ascending: false })
-      .limit(100);
-
-    if (error) { console.error('[LB] FFA fetch error:', error.message); return; }
-
-    const stats = new Map();
-    (data || []).forEach(row => {
-      if (!stats.has(row.player_name)) {
-        stats.set(row.player_name, { games: 0, wins: 0, kills: 0, avgPlace: 0, totalPlace: 0 });
-      }
-      const s = stats.get(row.player_name);
-      s.games++;
-      if (row.placement === 1) s.wins++;
-      s.kills += row.kills;
-      s.totalPlace += row.placement;
-    });
-
-    ffaData = Array.from(stats.entries())
-      .map(([name, s]) => ({
-        name, wins: s.wins, games: s.games, kills: s.kills,
-        avgPlace: (s.totalPlace / s.games).toFixed(1),
-      }))
-      .sort((a, b) => b.wins - a.wins || b.kills - a.kills)
-      .slice(0, 10);
+    const res = await fetch(`/api/leaderboard/ffa${forceRefresh ? '?refresh=1' : ''}`);
+    if (!res.ok) return;
+    const payload = await res.json();
+    if (!Array.isArray(payload?.data)) return;
+    ffaData = payload.data;
 
     lastFfaFetchTime = Date.now();
     ffaResetTime = Date.now() + FFA_REFRESH_INTERVAL;
@@ -113,7 +64,7 @@ async function fetchFfaLeaderboard() {
 
 // Force FFA refresh (called after FFA match ends)
 export function refreshFFALeaderboard() {
-  fetchFfaLeaderboard();
+  fetchFfaLeaderboard(true);
 }
 
 // ─── RENDER LEADERBOARD ON WALL ─────────────────────────────────────
