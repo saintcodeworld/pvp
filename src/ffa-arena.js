@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { ws } from './multiplayer.js';
-import { playerPos, yaw, pitch, activeSlot, isSwinging } from './player.js';
+import { ws, myPlayerId } from './multiplayer.js';
+import { playerPos, yaw, pitch, activeSlot, isSwinging, velocity } from './player.js';
 
 // ─── FFA ARENA STATE ────────────────────────────────────────────────
 let inFFA = false;
@@ -13,6 +13,7 @@ let myHp = 100;
 let allPlayers = []; // [{id, name}]
 let alivePlayers = new Set();
 let ffaResult = null;
+let myFFAId = null;
 
 // Remote player models in FFA
 const ffaModels = new Map(); // playerId -> { group, head, body, ... }
@@ -21,17 +22,21 @@ const ffaTargetYaw = new Map();
 const ffaSwingTimes = new Map();
 const ffaWalkPhases = new Map();
 
+// Hit flash tracking
+const ffaHitFlashTimers = new Map();
+
 // Hearts
 const heartMeshes = new Map();
 
-const FFA_ARENA_SIZE = 60;
+const FFA_ARENA_SIZE = 40;
+const FFA_FLOOR_Y = 0; // ground surface Y
 
 export function isInFFA() { return inFFA; }
 export function getFFAPhase() { return ffaPhase; }
 
 export function setFFAScene(s) { scene = s; }
 
-// ─── BUILD FFA ARENA ────────────────────────────────────────────────
+// ─── BUILD FFA ARENA (Minecraft-style bright PvP) ───────────────────
 function buildFFAArena() {
   if (ffaGroup) {
     scene.remove(ffaGroup);
@@ -41,67 +46,205 @@ function buildFFAArena() {
 
   const HALF = FFA_ARENA_SIZE / 2;
 
-  // Floor
-  const floorGeo = new THREE.BoxGeometry(FFA_ARENA_SIZE, 0.5, FFA_ARENA_SIZE);
-  const floorMat = new THREE.MeshLambertMaterial({ color: 0x2a2a3a });
-  const floor = new THREE.Mesh(floorGeo, floorMat);
-  floor.position.set(0, -0.25, 0);
-  floor.receiveShadow = true;
-  ffaGroup.add(floor);
-
-  // Grid lines
-  const gridMat = new THREE.MeshBasicMaterial({ color: 0x3a3a5a });
-  for (let i = -HALF; i <= HALF; i += 5) {
-    const lineH = new THREE.Mesh(new THREE.BoxGeometry(FFA_ARENA_SIZE, 0.02, 0.05), gridMat);
-    lineH.position.set(0, 0.01, i);
-    ffaGroup.add(lineH);
-    const lineV = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.02, FFA_ARENA_SIZE), gridMat);
-    lineV.position.set(i, 0.01, 0);
-    ffaGroup.add(lineV);
+  // ── Checkerboard grass floor (like PvP arena) ──
+  const grassColor = 0x5b8c33;
+  const grassDarkColor = 0x4a7a28;
+  for (let x = -HALF; x < HALF; x += 2) {
+    for (let z = -HALF; z < HALF; z += 2) {
+      const isAlt = (Math.abs(x / 2) + Math.abs(z / 2)) % 2 === 0;
+      const blockGeo = new THREE.BoxGeometry(2, 0.5, 2);
+      const blockMat = new THREE.MeshLambertMaterial({ color: isAlt ? grassColor : grassDarkColor });
+      const block = new THREE.Mesh(blockGeo, blockMat);
+      block.position.set(x + 1, FFA_FLOOR_Y - 0.25, z + 1);
+      block.receiveShadow = true;
+      ffaGroup.add(block);
+    }
   }
 
-  // Walls (barrier)
-  const wallMat = new THREE.MeshBasicMaterial({ color: 0xff2222, transparent: true, opacity: 0.15 });
-  const wallHeight = 6;
-  // North/South walls
-  const wallNS = new THREE.Mesh(new THREE.BoxGeometry(FFA_ARENA_SIZE, wallHeight, 0.3), wallMat);
-  wallNS.position.set(0, wallHeight / 2, -HALF);
-  ffaGroup.add(wallNS);
-  const wallNS2 = wallNS.clone();
-  wallNS2.position.z = HALF;
-  ffaGroup.add(wallNS2);
-  // East/West walls
-  const wallEW = new THREE.Mesh(new THREE.BoxGeometry(0.3, wallHeight, FFA_ARENA_SIZE), wallMat);
-  wallEW.position.set(-HALF, wallHeight / 2, 0);
-  ffaGroup.add(wallEW);
-  const wallEW2 = wallEW.clone();
-  wallEW2.position.x = HALF;
-  ffaGroup.add(wallEW2);
+  // Extended ground beyond arena
+  const outerGeo = new THREE.PlaneGeometry(200, 200);
+  const outerMat = new THREE.MeshLambertMaterial({ color: 0x5b8c33 });
+  const outerGround = new THREE.Mesh(outerGeo, outerMat);
+  outerGround.rotation.x = -Math.PI / 2;
+  outerGround.position.set(0, FFA_FLOOR_Y - 0.5, 0);
+  outerGround.receiveShadow = true;
+  ffaGroup.add(outerGround);
 
-  // Corner pillars with red glow
-  const pillarGeo = new THREE.BoxGeometry(1, 8, 1);
-  const pillarMat = new THREE.MeshBasicMaterial({ color: 0xff3333 });
-  [[-HALF, -HALF], [HALF, -HALF], [-HALF, HALF], [HALF, HALF]].forEach(([x, z]) => {
-    const pillar = new THREE.Mesh(pillarGeo, pillarMat);
-    pillar.position.set(x, 4, z);
-    ffaGroup.add(pillar);
-    const light = new THREE.PointLight(0xff3333, 1.5, 25);
-    light.position.set(x, 6, z);
-    ffaGroup.add(light);
+  // Dirt layer
+  const dirtGeo = new THREE.BoxGeometry(FFA_ARENA_SIZE, 0.3, FFA_ARENA_SIZE);
+  const dirtMat = new THREE.MeshLambertMaterial({ color: 0x8B6914 });
+  const dirt = new THREE.Mesh(dirtGeo, dirtMat);
+  dirt.position.set(0, FFA_FLOOR_Y - 0.65, 0);
+  ffaGroup.add(dirt);
+
+  // ── Boundary fence (oak wood fence posts) ──
+  const fenceColor = 0x9C7A3C;
+  const fencePostGeo = new THREE.BoxGeometry(0.25, 1.5, 0.25);
+  const fenceMat = new THREE.MeshLambertMaterial({ color: fenceColor });
+
+  for (let i = -HALF; i <= HALF; i += 3) {
+    [[-HALF, i], [HALF, i], [i, -HALF], [i, HALF]].forEach(([px, pz]) => {
+      const post = new THREE.Mesh(fencePostGeo, fenceMat);
+      post.position.set(px, FFA_FLOOR_Y + 0.75, pz);
+      post.castShadow = true;
+      ffaGroup.add(post);
+    });
+  }
+
+  // Fence rails
+  const railGeoNS = new THREE.BoxGeometry(0.1, 0.1, 3);
+  const railGeoEW = new THREE.BoxGeometry(3, 0.1, 0.1);
+  for (let i = -HALF; i < HALF; i += 3) {
+    [[-HALF, i + 1.5], [HALF, i + 1.5]].forEach(([ex, midZ]) => {
+      [0.4, 1.0].forEach(h => {
+        const rail = new THREE.Mesh(railGeoNS, fenceMat);
+        rail.position.set(ex, FFA_FLOOR_Y + h, midZ);
+        ffaGroup.add(rail);
+      });
+    });
+    [[i + 1.5, -HALF], [i + 1.5, HALF]].forEach(([midX, ez]) => {
+      [0.4, 1.0].forEach(h => {
+        const rail = new THREE.Mesh(railGeoEW, fenceMat);
+        rail.position.set(midX, FFA_FLOOR_Y + h, ez);
+        ffaGroup.add(rail);
+      });
+    });
+  }
+
+  // ── Corner pillars (oak log + glowstone) ──
+  const logColor = 0x6B4226;
+  [[-HALF, -HALF], [HALF, -HALF], [-HALF, HALF], [HALF, HALF]].forEach(([cx, cz]) => {
+    for (let y = 0; y < 4; y++) {
+      const log = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshLambertMaterial({ color: logColor })
+      );
+      log.position.set(cx, FFA_FLOOR_Y + y + 0.5, cz);
+      log.castShadow = true;
+      ffaGroup.add(log);
+    }
+    const glowstone = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({ color: 0xffdd66 })
+    );
+    glowstone.position.set(cx, FFA_FLOOR_Y + 4.5, cz);
+    ffaGroup.add(glowstone);
+    const glowLight = new THREE.PointLight(0xffdd66, 1.2, 20);
+    glowLight.position.set(cx, FFA_FLOOR_Y + 5.5, cz);
+    ffaGroup.add(glowLight);
   });
 
-  // Overhead lights
-  const lightPositions = [[0, 0], [-15, -15], [15, -15], [-15, 15], [15, 15], [0, -20], [0, 20]];
-  lightPositions.forEach(([x, z]) => {
-    const light = new THREE.PointLight(0xffffff, 1, 40);
-    light.position.set(x, 12, z);
-    ffaGroup.add(light);
-  });
+  // ── Trees around the outside ──
+  const treePositions = [
+    [-24, -24], [-26, -8], [-23, 10], [-27, 18],
+    [24, -24], [26, -6], [23, 10], [27, 16],
+    [-24, 24], [0, -26], [0, 26], [24, 24],
+    [-28, 0], [28, 0], [-14, -26], [14, -26],
+    [-14, 26], [14, 26], [-28, -14], [28, 14],
+  ];
+  treePositions.forEach(([tx, tz]) => buildTree(tx, tz));
 
-  const ambient = new THREE.AmbientLight(0x443344, 0.8);
-  ffaGroup.add(ambient);
+  // ── Flowers scattered on the floor ──
+  const flowerColors = [0xff4466, 0xffee44, 0x44aaff, 0xff88cc, 0xffffff, 0xff6600];
+  for (let i = 0; i < 60; i++) {
+    const fx = (Math.random() - 0.5) * (FFA_ARENA_SIZE - 6);
+    const fz = (Math.random() - 0.5) * (FFA_ARENA_SIZE - 6);
+    const stemGeo = new THREE.BoxGeometry(0.08, 0.35, 0.08);
+    const stemMat = new THREE.MeshLambertMaterial({ color: 0x33aa33 });
+    const stem = new THREE.Mesh(stemGeo, stemMat);
+    stem.position.set(fx, FFA_FLOOR_Y + 0.175, fz);
+    ffaGroup.add(stem);
+    const petalGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+    const petalMat = new THREE.MeshLambertMaterial({ color: flowerColors[Math.floor(Math.random() * flowerColors.length)] });
+    const petal = new THREE.Mesh(petalGeo, petalMat);
+    petal.position.set(fx, FFA_FLOOR_Y + 0.4, fz);
+    ffaGroup.add(petal);
+  }
+
+  // ── Tall grass patches ──
+  for (let i = 0; i < 80; i++) {
+    const gx = (Math.random() - 0.5) * (FFA_ARENA_SIZE - 4);
+    const gz = (Math.random() - 0.5) * (FFA_ARENA_SIZE - 4);
+    const bladeGeo = new THREE.BoxGeometry(0.12, 0.5 + Math.random() * 0.3, 0.12);
+    const bladeMat = new THREE.MeshLambertMaterial({ color: 0x4da832, transparent: true, opacity: 0.9 });
+    const blade = new THREE.Mesh(bladeGeo, bladeMat);
+    blade.position.set(gx, FFA_FLOOR_Y + 0.25, gz);
+    blade.rotation.y = Math.random() * Math.PI;
+    ffaGroup.add(blade);
+  }
+
+  // ── Red wool accent lines (arena center cross) ──
+  const redWool = new THREE.MeshLambertMaterial({ color: 0xcc2222 });
+  const lineH = new THREE.Mesh(new THREE.BoxGeometry(FFA_ARENA_SIZE, 0.02, 0.6), redWool);
+  lineH.position.set(0, FFA_FLOOR_Y + 0.01, 0);
+  ffaGroup.add(lineH);
+  const lineV = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.02, FFA_ARENA_SIZE), redWool);
+  lineV.position.set(0, FFA_FLOOR_Y + 0.01, 0);
+  ffaGroup.add(lineV);
+
+  // ── Lighting (sunny day) ──
+  const sunLight = new THREE.DirectionalLight(0xfffbe8, 1.4);
+  sunLight.position.set(30, 50, 20);
+  sunLight.castShadow = true;
+  sunLight.shadow.mapSize.width = 1024;
+  sunLight.shadow.mapSize.height = 1024;
+  sunLight.shadow.camera.near = 1;
+  sunLight.shadow.camera.far = 100;
+  sunLight.shadow.camera.left = -40;
+  sunLight.shadow.camera.right = 40;
+  sunLight.shadow.camera.top = 40;
+  sunLight.shadow.camera.bottom = -40;
+  ffaGroup.add(sunLight);
+
+  const ambientLight = new THREE.AmbientLight(0x8ec8f0, 0.7);
+  ffaGroup.add(ambientLight);
+
+  const fillLight = new THREE.DirectionalLight(0xffd4a0, 0.3);
+  fillLight.position.set(-20, 15, -15);
+  ffaGroup.add(fillLight);
 
   scene.add(ffaGroup);
+}
+
+function buildTree(x, z) {
+  const trunkColor = 0x6B4226;
+  const leafColor = 0x2D8C2D;
+  const leafAltColor = 0x3BA33B;
+  const trunkHeight = 4 + Math.floor(Math.random() * 2);
+
+  for (let y = 0; y < trunkHeight; y++) {
+    const trunkBlock = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshLambertMaterial({ color: trunkColor })
+    );
+    trunkBlock.position.set(x, FFA_FLOOR_Y + y + 0.5, z);
+    trunkBlock.castShadow = true;
+    ffaGroup.add(trunkBlock);
+  }
+
+  const leafStart = trunkHeight - 1;
+  for (let ly = 0; ly < 3; ly++) {
+    const radius = ly === 2 ? 1 : 2;
+    for (let lx = -radius; lx <= radius; lx++) {
+      for (let lz = -radius; lz <= radius; lz++) {
+        if (lx === 0 && lz === 0 && ly < 2) continue;
+        if (Math.abs(lx) === radius && Math.abs(lz) === radius && Math.random() > 0.5) continue;
+        const leafBlock = new THREE.Mesh(
+          new THREE.BoxGeometry(1, 1, 1),
+          new THREE.MeshLambertMaterial({ color: Math.random() > 0.3 ? leafColor : leafAltColor })
+        );
+        leafBlock.position.set(x + lx, FFA_FLOOR_Y + leafStart + ly + 0.5, z + lz);
+        leafBlock.castShadow = true;
+        ffaGroup.add(leafBlock);
+      }
+    }
+  }
+  const topLeaf = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshLambertMaterial({ color: leafColor })
+  );
+  topLeaf.position.set(x, FFA_FLOOR_Y + leafStart + 3.5, z);
+  ffaGroup.add(topLeaf);
 }
 
 // ─── PLAYER MODELS ──────────────────────────────────────────────────
@@ -111,7 +254,6 @@ function createFFAPlayerModel(playerId, playerName) {
   const group = new THREE.Group();
   const px = 0.0625;
 
-  // Random color per player
   const colors = [0xff4444, 0x44ff44, 0x4488ff, 0xffaa00, 0xff44ff, 0x44ffff, 0xff8844, 0x88ff44];
   const colorIdx = playerId % colors.length;
   const bodyColor = colors[colorIdx];
@@ -198,7 +340,10 @@ function createFFAPlayerModel(playerId, playerName) {
   nameLabel.renderOrder = 999;
   group.add(nameLabel);
 
-  const model = { group, head, body, leftArm, rightArm, leftLeg, rightLeg, nameLabel, swordGroup };
+  // Scale up models for FFA visibility
+  group.scale.set(1.5, 1.5, 1.5);
+
+  const model = { group, head, body, leftArm, rightArm, leftLeg, rightLeg, nameLabel, swordGroup, bodyColor };
   ffaModels.set(playerId, model);
   ffaTargetPos.set(playerId, new THREE.Vector3());
   ffaTargetYaw.set(playerId, 0);
@@ -217,11 +362,99 @@ function removeFFAPlayerModel(playerId) {
   ffaTargetYaw.delete(playerId);
   ffaSwingTimes.delete(playerId);
   ffaWalkPhases.delete(playerId);
+  ffaHitFlashTimers.delete(playerId);
+}
+
+// ─── HIT FLASH (full body turns red) ────────────────────────────────
+function flashPlayerModel(playerId) {
+  const model = ffaModels.get(playerId);
+  if (!model || ffaHitFlashTimers.has(playerId)) return;
+  ffaHitFlashTimers.set(playerId, true);
+
+  const hitColor = new THREE.Color(0xff0000);
+  const parts = ['head', 'body', 'leftArm', 'rightArm', 'leftLeg', 'rightLeg'];
+  const origColors = {};
+
+  parts.forEach(part => {
+    const mesh = model[part];
+    if (mesh && mesh.material) {
+      origColors[part] = mesh.material.color.getHex();
+      mesh.material.color.set(hitColor);
+      mesh.material.emissive = new THREE.Color(0xff2222);
+      mesh.material.emissiveIntensity = 0.6;
+    }
+  });
+
+  setTimeout(() => {
+    parts.forEach(part => {
+      const mesh = model?.[part];
+      if (mesh && mesh.material) mesh.material.color.set(0xffffff);
+    });
+  }, 80);
+
+  setTimeout(() => {
+    parts.forEach(part => {
+      const mesh = model?.[part];
+      if (mesh && mesh.material) {
+        mesh.material.color.setHex(origColors[part] || 0xcccccc);
+        mesh.material.emissive = new THREE.Color(0x000000);
+        mesh.material.emissiveIntensity = 0;
+      }
+    });
+    ffaHitFlashTimers.delete(playerId);
+  }, 200);
+}
+
+// ─── ARENA BOUNDS HELPER ─────────────────────────────────────────────
+const ARENA_INNER_HALF = FFA_ARENA_SIZE / 2 - 1;
+
+function clampToArena(x, z) {
+  return {
+    x: Math.max(-ARENA_INNER_HALF, Math.min(ARENA_INNER_HALF, x)),
+    z: Math.max(-ARENA_INNER_HALF, Math.min(ARENA_INNER_HALF, z)),
+  };
+}
+
+// ─── KNOCKBACK ──────────────────────────────────────────────────────
+const KNOCKBACK_STRENGTH = 6;
+const KNOCKBACK_UP = 4;
+
+function applyLocalKnockback(attackerX, attackerZ) {
+  if (attackerX == null || attackerZ == null) return;
+  const dx = playerPos.x - attackerX;
+  const dz = playerPos.z - attackerZ;
+  const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+  const nx = dx / dist;
+  const nz = dz / dist;
+  velocity.x = nx * KNOCKBACK_STRENGTH;
+  velocity.z = nz * KNOCKBACK_STRENGTH;
+  velocity.y = KNOCKBACK_UP;
+}
+
+function applyRemoteKnockback(playerId, attackerX, attackerZ) {
+  if (attackerX == null || attackerZ == null) return;
+  const tp = ffaTargetPos.get(playerId);
+  if (!tp) return;
+  const dx = tp.x - attackerX;
+  const dz = tp.z - attackerZ;
+  const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+  const nx = dx / dist;
+  const nz = dz / dist;
+  const clamped = clampToArena(tp.x + nx * 1.2, tp.z + nz * 1.2);
+  tp.x = clamped.x;
+  tp.z = clamped.z;
 }
 
 // ─── ENTER / EXIT FFA ───────────────────────────────────────────────
+function finishFFAReturnToMuseum() {
+  if (!inFFA) return;
+  exitFFA();
+  if (onFFAEnd) onFFAEnd(ffaResult);
+}
+
 export function enterFFA(setupData, endCallback) {
   matchId = setupData.matchId;
+  myFFAId = setupData.myId != null ? setupData.myId : myPlayerId;
   allPlayers = setupData.allPlayers || [];
   alivePlayers = new Set(allPlayers.map(p => p.id));
   onFFAEnd = endCallback;
@@ -230,10 +463,11 @@ export function enterFFA(setupData, endCallback) {
   myHp = 100;
   ffaResult = null;
   heartMeshes.clear();
+  ffaHitFlashTimers.clear();
 
   buildFFAArena();
 
-  // Set spawn position
+  // Set spawn position (eye height above FFA floor)
   playerPos.set(setupData.spawnX, 1.7, setupData.spawnZ);
 
   // Create models for other players
@@ -251,6 +485,7 @@ export function enterFFA(setupData, endCallback) {
 
 export function exitFFA() {
   inFFA = false;
+  myFFAId = null;
   ffaPhase = 'waiting';
   if (ffaGroup) {
     scene.remove(ffaGroup);
@@ -262,6 +497,7 @@ export function exitFFA() {
   ffaSwingTimes.clear();
   ffaWalkPhases.clear();
   heartMeshes.clear();
+  ffaHitFlashTimers.clear();
   hideFFAHUD();
 }
 
@@ -269,7 +505,6 @@ export function exitFFA() {
 export function handleFFAMessage(msg) {
   switch (msg.type) {
     case 'ffa_arena_setup': {
-      // Setup received — enterFFA is called from main.js
       break;
     }
 
@@ -288,7 +523,8 @@ export function handleFFAMessage(msg) {
     case 'player_update': {
       const tp = ffaTargetPos.get(msg.id);
       if (tp) {
-        tp.set(msg.x, (msg.y || 1.7) - 1.7, msg.z);
+        const clamped = clampToArena(msg.x, msg.z);
+        tp.set(clamped.x, (msg.y || 1.7) - 1.7 + FFA_FLOOR_Y, clamped.z);
         ffaTargetYaw.set(msg.id, msg.yaw);
       }
       break;
@@ -301,11 +537,20 @@ export function handleFFAMessage(msg) {
 
     case 'hit': {
       if (msg.defenderId !== msg.attackerId) {
-        // Check if I'm the defender
         const myId = allPlayers.find(p => ffaModels.has(p.id) === false)?.id;
-        if (msg.defenderId === myId || (!ffaModels.has(msg.defenderId) && allPlayers.length > 0)) {
+        const isMe = msg.defenderId === myId || (!ffaModels.has(msg.defenderId) && allPlayers.length > 0);
+        if (isMe) {
           myHp = msg.defenderHp;
           flashFFADamage();
+          applyLocalKnockback(msg.attackerX, msg.attackerZ);
+          if (msg.defenderHp <= 0) {
+            finishFFAReturnToMuseum();
+          }
+        }
+        // Flash the defender model red (full body) + knockback remote model
+        if (ffaModels.has(msg.defenderId)) {
+          flashPlayerModel(msg.defenderId);
+          applyRemoteKnockback(msg.defenderId, msg.attackerX, msg.attackerZ);
         }
         updateFFAHPBar();
       }
@@ -319,7 +564,6 @@ export function handleFFAMessage(msg) {
 
     case 'heart_picked_up': {
       removeFFAHeart(msg.heartId);
-      // Check if it's me
       if (!ffaModels.has(msg.playerId)) {
         myHp = msg.hp;
       }
@@ -328,24 +572,22 @@ export function handleFFAMessage(msg) {
     }
 
     case 'ffa_player_eliminated': {
+      if (!inFFA) break;
       alivePlayers.delete(msg.playerId);
       updateAliveCount();
-      // Show elimination notification
       showEliminationNotif(msg.eliminatedName, msg.killerName);
-      // Remove model if it exists
       if (ffaModels.has(msg.playerId)) {
-        // Fade out model
         const model = ffaModels.get(msg.playerId);
         if (model) model.group.visible = false;
-      } else {
-        // I was eliminated
-        ffaPhase = 'spectating';
-        showEliminatedOverlay();
+      }
+      if (msg.playerId === myFFAId || msg.playerId === myPlayerId) {
+        finishFFAReturnToMuseum();
       }
       break;
     }
 
     case 'ffa_match_end': {
+      if (!inFFA) break;
       ffaPhase = 'match_end';
       ffaResult = msg;
       showFFAMatchEnd(msg);
@@ -353,10 +595,7 @@ export function handleFFAMessage(msg) {
     }
 
     case 'returned_to_museum': {
-      if (inFFA) {
-        exitFFA();
-        if (onFFAEnd) onFFAEnd(ffaResult);
-      }
+      finishFFAReturnToMuseum();
       break;
     }
   }
@@ -387,9 +626,9 @@ export function sendFFASwing() {
 // ─── HEARTS ─────────────────────────────────────────────────────────
 function spawnFFAHeart(heart) {
   const geo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-  const mat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+  const mat = new THREE.MeshBasicMaterial({ color: 0xff3366 });
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(heart.x, 0.5, heart.z);
+  mesh.position.set(heart.x, FFA_FLOOR_Y + 0.5, heart.z);
   mesh.userData = { id: heart.id, phase: Math.random() * Math.PI * 2 };
   ffaGroup.add(mesh);
   heartMeshes.set(heart.id, mesh);
@@ -423,12 +662,16 @@ export function updateFFAScene(delta, time, camera) {
     group.position.y += (tp.y - group.position.y) * lerpFactor;
     group.position.z += (tp.z - group.position.z) * lerpFactor;
 
+    // Hard clamp visual position inside fence
+    group.position.x = Math.max(-ARENA_INNER_HALF, Math.min(ARENA_INNER_HALF, group.position.x));
+    group.position.z = Math.max(-ARENA_INNER_HALF, Math.min(ARENA_INNER_HALF, group.position.z));
+
     const dx = group.position.x - prevX;
     const dz = group.position.z - prevZ;
     const speed = delta > 0 ? Math.sqrt(dx * dx + dz * dz) / delta : 0;
 
     // Rotation
-    const targetRotY = -(ffaTargetYaw.get(pid) || 0) + Math.PI;
+    const targetRotY = (ffaTargetYaw.get(pid) || 0) + Math.PI;
     let rotDiff = targetRotY - group.rotation.y;
     while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
     while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
@@ -468,14 +711,13 @@ export function updateFFAScene(delta, time, camera) {
   // Animate hearts
   heartMeshes.forEach(mesh => {
     mesh.rotation.y = time * 2;
-    mesh.position.y = 0.5 + Math.sin(time * 3 + mesh.userData.phase) * 0.15;
+    mesh.position.y = FFA_FLOOR_Y + 0.5 + Math.sin(time * 3 + mesh.userData.phase) * 0.15;
   });
 
-  // Arena bounds
-  if (ffaPhase === 'fighting' || ffaPhase === 'spectating') {
-    const HALF = FFA_ARENA_SIZE / 2 - 0.5;
-    playerPos.x = Math.max(-HALF, Math.min(HALF, playerPos.x));
-    playerPos.z = Math.max(-HALF, Math.min(HALF, playerPos.z));
+  // Arena bounds — keep everyone inside the fence
+  if (ffaPhase === 'fighting') {
+    playerPos.x = Math.max(-ARENA_INNER_HALF, Math.min(ARENA_INNER_HALF, playerPos.x));
+    playerPos.z = Math.max(-ARENA_INNER_HALF, Math.min(ARENA_INNER_HALF, playerPos.z));
   }
 }
 
@@ -539,14 +781,6 @@ function showEliminationNotif(eliminatedName, killerName) {
     : `<span style="color:#888">${eliminatedName}</span> disconnected`;
   el.appendChild(line);
   setTimeout(() => { if (line.parentNode) line.parentNode.removeChild(line); }, 5000);
-}
-
-function showEliminatedOverlay() {
-  const overlay = document.getElementById('ffa-overlay');
-  if (overlay) {
-    overlay.style.display = 'flex';
-    overlay.innerHTML = '<div class="combat-splash lose">ELIMINATED!</div>';
-  }
 }
 
 function showFFAMatchEnd(data) {

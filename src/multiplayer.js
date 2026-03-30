@@ -28,10 +28,19 @@ export function setMyPlayerName(name) {
   myPlayerName = name;
 }
 
+/** Ask server for museum room roster — keeps “Players online” accurate */
+export function requestMuseumPlayerResync() {
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'resync' }));
+  }
+}
+
 // ─── CONNECT ────────────────────────────────────────────────────────
+// Vite dev (port 5173) proxies only `/ws` → game server (vite.config.js).
+// Connecting to `ws://host/` hits the dev server, not the multiplayer backend.
 export function connectWebSocket() {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${location.host}`;
+  const wsUrl = `${protocol}//${location.host}/ws`;
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
@@ -403,6 +412,14 @@ function triggerRemoteSwing(rp) {
   rp.swingTime = 0.5;
 }
 
+export function hideRemotePlayers() {
+  remotePlayers.forEach(rp => { rp.group.visible = false; });
+}
+
+export function showRemotePlayers() {
+  remotePlayers.forEach(rp => { rp.group.visible = true; });
+}
+
 export function updateRemotePlayers(delta, time) {
   remotePlayers.forEach((rp) => {
     const lerpFactor = Math.min(1, delta * 12);
@@ -420,7 +437,7 @@ export function updateRemotePlayers(delta, time) {
     const dz = currentPos.z - prevZ;
     const speed = delta > 0 ? Math.sqrt(dx * dx + dz * dz) / delta : 0;
 
-    const targetRotY = -rp.targetYaw + Math.PI;
+    const targetRotY = rp.targetYaw + Math.PI;
     let rotDiff = targetRotY - rp.group.rotation.y;
     while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
     while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;

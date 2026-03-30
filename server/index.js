@@ -8,6 +8,7 @@ import { setupMuseumRoom } from './museum-room.js';
 import { setupLobbyManager } from './lobby-manager.js';
 import { setupCombatManager } from './combat-manager.js';
 import { setupFFAManager } from './ffa-manager.js';
+import { setupBotManager } from './bot-manager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,9 +25,24 @@ const MIME_TYPES = {
   '.ico': 'image/x-icon',
 };
 
+// Bot API handler (set later after botManager is created)
+let botApiHandler = null;
+
 const server = http.createServer((req, res) => {
+  // ── Bot management API ──
+  const urlPath = req.url.split('?')[0];
+  if (urlPath.startsWith('/api/bots')) {
+    if (botApiHandler) return botApiHandler(req, res);
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Bot system not ready' }));
+    return;
+  }
+
   let filePath = req.url === '/' ? '/index.html' : req.url;
   filePath = filePath.split('?')[0];
+
+  // /bots route → serve bots.html
+  if (filePath === '/bots') filePath = '/bots.html';
 
   // In production, files are in dist/ folder. In dev, they're in root.
   const isProduction = process.env.NODE_ENV === 'production';
@@ -129,6 +145,79 @@ const museumRoom = setupMuseumRoom(players, broadcastToRoom, sendTo);
 const lobbyManager = setupLobbyManager(players, broadcastToRoom, sendTo, changeRoom, getMuseumPlayers);
 const combatManager = setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, changeRoom, getMuseumPlayers);
 const ffaManager = setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseumPlayers);
+const botManager = setupBotManager(ffaManager, players, broadcastToRoom, sendTo, changeRoom);
+ffaManager.setBotManager(botManager);
+
+// ─── BOT API ENDPOINTS ──────────────────────────────────────────────
+botApiHandler = (req, res) => {
+  const urlPath = req.url.split('?')[0];
+  res.setHeader('Content-Type', 'application/json');
+
+  if (req.method === 'GET' && urlPath === '/api/bots/status') {
+    const queueBots = botManager.getQueuedBotCount();
+    const totalBots = botManager.getBotCount();
+    const queueTotal = ffaManager.queue.length;
+    const activeMatches = ffaManager.ffaMatches.size;
+    res.writeHead(200);
+    res.end(JSON.stringify({
+      queueBots,
+      totalBots,
+      queueTotal,
+      queueMax: 8,
+      activeMatches,
+      queuePlayers: ffaManager.queue.map(p => ({
+        id: p.id,
+        name: p.name,
+        isBot: botManager.isBot(p.id),
+      })),
+    }));
+    return;
+  }
+
+  if (req.method === 'POST' && urlPath === '/api/bots/add') {
+    const bot = botManager.addBotToQueue();
+    res.writeHead(200);
+    res.end(JSON.stringify({ ok: true, bot: { id: bot.id, name: bot.name } }));
+    return;
+  }
+
+  if (req.method === 'POST' && urlPath === '/api/bots/remove') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const { botId } = JSON.parse(body);
+        if (botId && botManager.isBot(botId)) {
+          botManager.removeBotFromQueue(botId);
+          res.writeHead(200);
+          res.end(JSON.stringify({ ok: true }));
+        } else {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Invalid bot ID' }));
+        }
+      } catch (e) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'Invalid request' }));
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && urlPath === '/api/bots/fill') {
+    const needed = 8 - ffaManager.queue.length;
+    const added = [];
+    for (let i = 0; i < needed; i++) {
+      const bot = botManager.addBotToQueue();
+      added.push({ id: bot.id, name: bot.name });
+    }
+    res.writeHead(200);
+    res.end(JSON.stringify({ ok: true, added, count: added.length }));
+    return;
+  }
+
+  res.writeHead(404);
+  res.end(JSON.stringify({ error: 'Not found' }));
+};
 
 // ─── WEBSOCKET HEARTBEAT (ping/pong to detect dead connections) ─────
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
@@ -155,12 +244,14 @@ wss.on('connection', (ws) => {
   const playerId = nextId++;
   const playerColor = randomPlayerColor();
 
-  const playerState = {
+  const   playerState = {
     id: playerId,
     name: 'Player ' + playerId,
     color: playerColor,
     x: 0, y: 2.7, z: -28,
-    yaw: 0, pitch: 0,
+    // Face +Z toward PVP portal (north); yaw 0 faced -Z (away from portal)
+    yaw: Math.PI,
+    pitch: 0,
     activeSlot: 0,
     isSwinging: false,
   };
@@ -231,11 +322,11 @@ wss.on('connection', (ws) => {
         lobbyManager.handleMessage(playerId, msg);
       }
 
-      // FFA queue messages (from museum)
+      // FFA queue messages (player stays in museum while queued)
       if (msg.type === 'ffa_join_queue' && player.room === 'museum') {
         ffaManager.handleMessage(playerId, msg);
       }
-      if (msg.type === 'ffa_leave_queue' && player.room === 'ffa_queue') {
+      if (msg.type === 'ffa_leave_queue' && player.room === 'museum') {
         ffaManager.handleMessage(playerId, msg);
       }
 
@@ -287,6 +378,14 @@ wss.on('connection', (ws) => {
             lobby.readyCount++;
             // Start when all players are ready
             if (!lobby.matchCreated && lobby.readyCount >= lobby.maxPlayers) {
+              const missing = lobby.players.filter(p => !players.has(p.id));
+              if (missing.length > 0) {
+                lobby.players.forEach(p => {
+                  if (players.has(p.id)) sendTo(p.id, { type: 'lobby_cancelled' });
+                });
+                lobbyManager.removeLobby(lobbyId);
+                break;
+              }
               lobby.matchCreated = true;
               if (lobby.mode === '2v2') {
                 combatManager.createMatch2v2(lobbyId, lobby.players);
@@ -314,35 +413,32 @@ wss.on('connection', (ws) => {
     }
   });
 
-  ws.on('close', () => {
+  function cleanupDisconnectedPlayer() {
     const player = players.get(playerId);
-    if (player) {
-      // Handle disconnect based on room
-      if (player.room === 'arena') {
-        combatManager.handleDisconnect(playerId);
-      }
-      if (player.room === 'lobby') {
-        lobbyManager.handleDisconnect(playerId);
-      }
-      if (player.room === 'ffa_queue' || player.room === 'ffa_arena') {
-        ffaManager.handleDisconnect(playerId);
-      }
+    if (!player) return;
 
-      broadcastToRoom(player.room, {
-        type: 'player_leave',
-        id: playerId,
-      });
-      // Remove from room index
-      if (roomIndex[player.room]) roomIndex[player.room].delete(playerId);
+    // Lobby cleanup for any room (in_game loading is still "museum")
+    lobbyManager.handleDisconnect(playerId);
+
+    if (player.room === 'arena') {
+      combatManager.handleDisconnect(playerId);
     }
+    // Always check FFA disconnect (player may be queued while in museum room)
+    ffaManager.handleDisconnect(playerId);
+
+    broadcastToRoom(player.room, {
+      type: 'player_leave',
+      id: playerId,
+    });
+    if (roomIndex[player.room]) roomIndex[player.room].delete(playerId);
     players.delete(playerId);
     console.log(`Player ${playerId} disconnected (${players.size} online)`);
-  });
+  }
+
+  ws.on('close', cleanupDisconnectedPlayer);
 
   ws.on('error', () => {
-    const player = players.get(playerId);
-    if (player && roomIndex[player.room]) roomIndex[player.room].delete(playerId);
-    players.delete(playerId);
+    cleanupDisconnectedPlayer();
   });
 });
 

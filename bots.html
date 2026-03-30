@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bot Manager — PVP Wars</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: linear-gradient(135deg, #0a0a1a 0%, #1a0a2e 50%, #0a0a1a 100%);
+      min-height: 100vh; font-family: 'Courier New', monospace; color: #eee;
+    }
+    .container {
+      max-width: 680px; margin: 0 auto; padding: 40px 20px;
+    }
+    h1 {
+      text-align: center; color: #ff6633; font-size: 1.8rem;
+      text-transform: uppercase; letter-spacing: 4px; margin-bottom: 6px;
+    }
+    .subtitle {
+      text-align: center; color: #888; font-size: 0.85rem;
+      margin-bottom: 32px;
+    }
+    .card {
+      background: rgba(15, 12, 25, 0.95);
+      border: 2px solid #ff6633;
+      border-radius: 8px; padding: 24px 28px;
+      margin-bottom: 20px;
+    }
+    .card h2 {
+      color: #ff6633; font-size: 1.1rem; margin-bottom: 16px;
+      text-transform: uppercase; letter-spacing: 2px;
+    }
+    .stats-grid {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;
+      margin-bottom: 20px;
+    }
+    .stat-box {
+      background: rgba(255, 102, 51, 0.08);
+      border: 1px solid rgba(255, 102, 51, 0.25);
+      border-radius: 6px; padding: 14px; text-align: center;
+    }
+    .stat-value {
+      font-size: 1.8rem; font-weight: bold; color: #ff6633;
+    }
+    .stat-label {
+      font-size: 0.7rem; color: #888; text-transform: uppercase;
+      letter-spacing: 1px; margin-top: 4px;
+    }
+    .actions {
+      display: flex; gap: 10px; flex-wrap: wrap;
+    }
+    .btn {
+      padding: 12px 24px; border: none; border-radius: 4px;
+      font-family: 'Courier New', monospace; font-size: 0.85rem;
+      font-weight: bold; cursor: pointer; text-transform: uppercase;
+      letter-spacing: 1px; transition: all 0.2s;
+    }
+    .btn:disabled {
+      opacity: 0.4; cursor: not-allowed;
+    }
+    .btn-add {
+      background: #ff6633; color: #fff; flex: 1;
+    }
+    .btn-add:hover:not(:disabled) { background: #ff8855; }
+    .btn-fill {
+      background: #cc44ff; color: #fff; flex: 1;
+    }
+    .btn-fill:hover:not(:disabled) { background: #dd66ff; }
+    .btn-remove {
+      background: #553333; color: #ff6666;
+      border: 1px solid #aa3333; padding: 6px 14px;
+      font-size: 0.75rem;
+    }
+    .btn-remove:hover:not(:disabled) { background: #663333; }
+    .queue-list {
+      margin-top: 16px;
+    }
+    .queue-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 10px 14px; background: rgba(255, 102, 51, 0.06);
+      border: 1px solid rgba(255, 102, 51, 0.15);
+      border-radius: 4px; margin-bottom: 6px;
+    }
+    .queue-item .name {
+      font-size: 0.9rem;
+    }
+    .queue-item .badge {
+      font-size: 0.65rem; padding: 2px 8px;
+      border-radius: 3px; font-weight: bold;
+      text-transform: uppercase; letter-spacing: 1px;
+    }
+    .badge-bot {
+      background: rgba(255, 102, 51, 0.2); color: #ff6633;
+      border: 1px solid rgba(255, 102, 51, 0.4);
+    }
+    .badge-player {
+      background: rgba(0, 200, 100, 0.15); color: #00cc66;
+      border: 1px solid rgba(0, 200, 100, 0.3);
+    }
+    .empty-queue {
+      text-align: center; color: #555; padding: 20px;
+      font-style: italic; font-size: 0.85rem;
+    }
+    .status-msg {
+      text-align: center; font-size: 0.8rem; margin-top: 12px;
+      min-height: 20px; transition: opacity 0.3s;
+    }
+    .status-msg.success { color: #00cc44; }
+    .status-msg.error { color: #ff4444; }
+    .back-link {
+      display: block; text-align: center; margin-top: 24px;
+      color: #888; font-size: 0.8rem; text-decoration: none;
+    }
+    .back-link:hover { color: #ff6633; }
+    .refresh-hint {
+      text-align: center; color: #444; font-size: 0.7rem;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Bot Manager</h1>
+    <p class="subtitle">Add AI bots to Free-For-All matches</p>
+
+    <div class="card">
+      <h2>Queue Status</h2>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-value" id="stat-queue">0</div>
+          <div class="stat-label">In Queue</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="stat-bots">0</div>
+          <div class="stat-label">Bots</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="stat-matches">0</div>
+          <div class="stat-label">Active Matches</div>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-add" id="btn-add" onclick="addBot()">+ Add Bot</button>
+        <button class="btn btn-fill" id="btn-fill" onclick="fillBots()">Fill Queue</button>
+      </div>
+      <div class="status-msg" id="status-msg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Current Queue</h2>
+      <div id="queue-list" class="queue-list">
+        <div class="empty-queue">No players in queue</div>
+      </div>
+    </div>
+
+    <p class="refresh-hint">Auto-refreshes every 2 seconds</p>
+    <a href="/" class="back-link">← Back to Game</a>
+  </div>
+
+  <script>
+    let polling = null;
+
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/bots/status');
+        const data = await res.json();
+
+        document.getElementById('stat-queue').textContent = data.queueTotal + '/' + data.queueMax;
+        document.getElementById('stat-bots').textContent = data.queueBots;
+        document.getElementById('stat-matches').textContent = data.activeMatches;
+
+        const listEl = document.getElementById('queue-list');
+        if (data.queuePlayers.length === 0) {
+          listEl.innerHTML = '<div class="empty-queue">No players in queue</div>';
+        } else {
+          listEl.innerHTML = data.queuePlayers.map(p => `
+            <div class="queue-item">
+              <span class="name">${escapeHtml(p.name)}</span>
+              <span style="display:flex;align-items:center;gap:8px;">
+                <span class="badge ${p.isBot ? 'badge-bot' : 'badge-player'}">${p.isBot ? 'BOT' : 'PLAYER'}</span>
+                ${p.isBot ? `<button class="btn btn-remove" onclick="removeBot(${p.id})">Remove</button>` : ''}
+              </span>
+            </div>
+          `).join('');
+        }
+
+        const queueFull = data.queueTotal >= data.queueMax;
+        document.getElementById('btn-add').disabled = queueFull;
+        document.getElementById('btn-fill').disabled = queueFull;
+      } catch (e) {
+        showStatus('Failed to fetch status', true);
+      }
+    }
+
+    async function addBot() {
+      try {
+        const res = await fetch('/api/bots/add', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          showStatus('Added ' + data.bot.name);
+        } else {
+          showStatus(data.error || 'Failed to add bot', true);
+        }
+        fetchStatus();
+      } catch (e) {
+        showStatus('Request failed', true);
+      }
+    }
+
+    async function fillBots() {
+      try {
+        const res = await fetch('/api/bots/fill', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          showStatus('Added ' + data.count + ' bots — match starting!');
+        } else {
+          showStatus(data.error || 'Failed', true);
+        }
+        fetchStatus();
+      } catch (e) {
+        showStatus('Request failed', true);
+      }
+    }
+
+    async function removeBot(botId) {
+      try {
+        const res = await fetch('/api/bots/remove', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ botId }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showStatus('Bot removed');
+        } else {
+          showStatus(data.error || 'Failed', true);
+        }
+        fetchStatus();
+      } catch (e) {
+        showStatus('Request failed', true);
+      }
+    }
+
+    function showStatus(msg, isError) {
+      const el = document.getElementById('status-msg');
+      el.textContent = msg;
+      el.className = 'status-msg ' + (isError ? 'error' : 'success');
+      setTimeout(() => { el.textContent = ''; }, 3000);
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    fetchStatus();
+    polling = setInterval(fetchStatus, 2000);
+  </script>
+</body>
+</html>

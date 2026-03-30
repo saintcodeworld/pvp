@@ -13,9 +13,9 @@ let currentView = 'main'; // 'main' | 'waiting' | 'room'
 
 export function isInLobby() { return inLobby; }
 
-// ─── VOID SCENE OBJECTS ─────────────────────────────────────────────
+// ─── LOBBY GARDEN SCENE ─────────────────────────────────────────────
 let voidGroup = null;
-let voidStars = null;
+let lobbyButterflies = [];
 let scene = null;
 
 export function setLobbyScene(s) { scene = s; }
@@ -25,43 +25,137 @@ function createVoidEnvironment() {
   voidGroup = new THREE.Group();
   voidGroup.visible = false;
 
-  const platGeo = new THREE.BoxGeometry(6, 0.5, 6);
-  const platMat = new THREE.MeshLambertMaterial({ color: 0x1a1a2e });
-  const platform = new THREE.Mesh(platGeo, platMat);
-  platform.position.set(0, -0.25, 0);
-  voidGroup.add(platform);
-
-  const edgeGeo = new THREE.BoxGeometry(6.2, 0.1, 6.2);
-  const edgeMat = new THREE.MeshBasicMaterial({ color: 0x9933ff, transparent: true, opacity: 0.6 });
-  const edge = new THREE.Mesh(edgeGeo, edgeMat);
-  edge.position.set(0, 0.01, 0);
-  voidGroup.add(edge);
-
-  const purpleLight = new THREE.PointLight(0x9933ff, 2, 20);
-  purpleLight.position.set(0, 5, 0);
-  voidGroup.add(purpleLight);
-
-  const dimLight = new THREE.AmbientLight(0x222244, 0.5);
-  voidGroup.add(dimLight);
-
-  const starCount = 500;
-  const starGeo = new THREE.BufferGeometry();
-  const starPositions = new Float32Array(starCount * 3);
-  const starColors = new Float32Array(starCount * 3);
-  for (let i = 0; i < starCount; i++) {
-    starPositions[i * 3] = (Math.random() - 0.5) * 100;
-    starPositions[i * 3 + 1] = (Math.random() - 0.5) * 60 + 10;
-    starPositions[i * 3 + 2] = (Math.random() - 0.5) * 100;
-    const brightness = 0.3 + Math.random() * 0.7;
-    starColors[i * 3] = brightness * (0.6 + Math.random() * 0.4);
-    starColors[i * 3 + 1] = brightness * (0.3 + Math.random() * 0.3);
-    starColors[i * 3 + 2] = brightness;
+  // ── Grass platform (garden island) ──
+  const grassColor = 0x5b8c33;
+  const grassDarkColor = 0x4a7a28;
+  const PLAT_SIZE = 8;
+  for (let x = -PLAT_SIZE / 2; x < PLAT_SIZE / 2; x++) {
+    for (let z = -PLAT_SIZE / 2; z < PLAT_SIZE / 2; z++) {
+      const isAlt = (Math.abs(x) + Math.abs(z)) % 2 === 0;
+      const block = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 0.5, 1),
+        new THREE.MeshLambertMaterial({ color: isAlt ? grassColor : grassDarkColor })
+      );
+      block.position.set(x + 0.5, -0.25, z + 0.5);
+      block.receiveShadow = true;
+      voidGroup.add(block);
+    }
   }
-  starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-  starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
-  const starMat = new THREE.PointsMaterial({ size: 0.15, vertexColors: true, transparent: true, opacity: 0.8 });
-  voidStars = new THREE.Points(starGeo, starMat);
-  voidGroup.add(voidStars);
+
+  // Dirt layer below
+  const dirtGeo = new THREE.BoxGeometry(PLAT_SIZE, 0.4, PLAT_SIZE);
+  const dirtMat = new THREE.MeshLambertMaterial({ color: 0x8B6914 });
+  const dirt = new THREE.Mesh(dirtGeo, dirtMat);
+  dirt.position.set(0, -0.7, 0);
+  voidGroup.add(dirt);
+
+  // Extended grass ground
+  const outerGeo = new THREE.PlaneGeometry(120, 120);
+  const outerMat = new THREE.MeshLambertMaterial({ color: 0x5b8c33 });
+  const outerGround = new THREE.Mesh(outerGeo, outerMat);
+  outerGround.rotation.x = -Math.PI / 2;
+  outerGround.position.set(0, -0.5, 0);
+  voidGroup.add(outerGround);
+
+  // ── Small flowers on the platform ──
+  const flowerColors = [0xff4466, 0xffee44, 0xff88cc, 0xffffff, 0x44aaff];
+  for (let i = 0; i < 12; i++) {
+    const fx = (Math.random() - 0.5) * (PLAT_SIZE - 1);
+    const fz = (Math.random() - 0.5) * (PLAT_SIZE - 1);
+    const stem = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.3, 0.06),
+      new THREE.MeshLambertMaterial({ color: 0x33aa33 })
+    );
+    stem.position.set(fx, 0.15, fz);
+    voidGroup.add(stem);
+    const petal = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.18, 0.18),
+      new THREE.MeshLambertMaterial({ color: flowerColors[Math.floor(Math.random() * flowerColors.length)] })
+    );
+    petal.position.set(fx, 0.35, fz);
+    voidGroup.add(petal);
+  }
+
+  // ── Small trees around the lobby platform ──
+  function createLobbyTree(x, z, height) {
+    for (let y = 0; y < height; y++) {
+      const trunk = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshLambertMaterial({ color: 0x6B4226 })
+      );
+      trunk.position.set(x, y + 0.5, z);
+      trunk.castShadow = true;
+      voidGroup.add(trunk);
+    }
+    const leafColor = 0x2D8C2D;
+    const leafAlt = 0x3BA33B;
+    for (let ly = 0; ly < 2; ly++) {
+      const r = ly === 1 ? 1 : 2;
+      for (let lx = -r; lx <= r; lx++) {
+        for (let lz = -r; lz <= r; lz++) {
+          if (lx === 0 && lz === 0 && ly === 0) continue;
+          if (Math.abs(lx) === r && Math.abs(lz) === r && Math.random() > 0.6) continue;
+          const leaf = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshLambertMaterial({ color: Math.random() > 0.4 ? leafColor : leafAlt })
+          );
+          leaf.position.set(x + lx, height - 1 + ly + 0.5, z + lz);
+          voidGroup.add(leaf);
+        }
+      }
+    }
+    const topLeaf = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshLambertMaterial({ color: leafColor })
+    );
+    topLeaf.position.set(x, height + 1.5, z);
+    voidGroup.add(topLeaf);
+  }
+
+  createLobbyTree(-6, -6, 4);
+  createLobbyTree(6, -5, 5);
+  createLobbyTree(-5, 7, 4);
+  createLobbyTree(7, 6, 5);
+  createLobbyTree(0, -8, 3);
+  createLobbyTree(-9, 0, 4);
+  createLobbyTree(9, 1, 4);
+
+  // ── Butterflies (animated particles) ──
+  lobbyButterflies = [];
+  const butterflyColors = [0xff88cc, 0xffee44, 0x88ddff, 0xffffff];
+  for (let i = 0; i < 8; i++) {
+    const bfly = new THREE.Mesh(
+      new THREE.BoxGeometry(0.15, 0.1, 0.15),
+      new THREE.MeshBasicMaterial({ color: butterflyColors[i % butterflyColors.length] })
+    );
+    bfly.position.set(
+      (Math.random() - 0.5) * 10,
+      1.5 + Math.random() * 2,
+      (Math.random() - 0.5) * 10
+    );
+    bfly.userData = {
+      baseX: bfly.position.x,
+      baseY: bfly.position.y,
+      baseZ: bfly.position.z,
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.5 + Math.random() * 0.5,
+    };
+    voidGroup.add(bfly);
+    lobbyButterflies.push(bfly);
+  }
+
+  // ── Lighting (sunny garden vibe) ──
+  const sunLight = new THREE.DirectionalLight(0xfffbe8, 1.3);
+  sunLight.position.set(10, 20, 8);
+  sunLight.castShadow = true;
+  voidGroup.add(sunLight);
+
+  const ambientLight = new THREE.AmbientLight(0x8ec8f0, 0.7);
+  voidGroup.add(ambientLight);
+
+  const fillLight = new THREE.DirectionalLight(0xffd4a0, 0.3);
+  fillLight.position.set(-8, 6, -5);
+  voidGroup.add(fillLight);
 
   scene.add(voidGroup);
 }
@@ -193,17 +287,38 @@ function escapeHtml(str) {
 export function createLobby(mode = '1v1', isPrivate = false) {
   if (!ws || ws.readyState !== 1) return;
   currentLobbyMode = mode;
-  ws.send(JSON.stringify({ type: 'create_lobby', mode, isPrivate }));
+  const payload = { type: 'create_lobby', mode, isPrivate };
+  if (mode === '2v2') {
+    const sel = document.getElementById('lobby-create-team');
+    const t = sel ? parseInt(sel.value, 10) : 1;
+    payload.team = t === 2 ? 2 : 1;
+  }
+  ws.send(JSON.stringify(payload));
 }
 
 function joinLobby(lobbyId) {
   if (!ws || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({ type: 'join_lobby', lobbyId }));
+  const payload = { type: 'join_lobby', lobbyId };
+  const lobby = lobbyList.find(l => l.id === lobbyId);
+  if (lobby && lobby.mode === '2v2') {
+    const sel = document.getElementById('lobby-join-team');
+    if (sel && sel.value !== '' && sel.value !== undefined) {
+      const t = parseInt(sel.value, 10);
+      if (t === 1 || t === 2) payload.team = t;
+    }
+  }
+  ws.send(JSON.stringify(payload));
 }
 
 function joinPrivate(code) {
   if (!ws || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({ type: 'join_private', code }));
+  const payload = { type: 'join_private', code };
+  const sel = document.getElementById('lobby-join-team');
+  if (sel && sel.value !== '' && sel.value !== undefined) {
+    const t = parseInt(sel.value, 10);
+    if (t === 1 || t === 2) payload.team = t;
+  }
+  ws.send(JSON.stringify(payload));
 }
 
 export function cancelLobby() {
@@ -257,6 +372,7 @@ export function handleLobbyMessage(msg) {
       currentLobbyPlayers = [];
       currentLobbyCode = null;
       if (inLobby) showMainView();
+      window.dispatchEvent(new CustomEvent('lobby-match-aborted'));
       break;
     }
 
@@ -295,11 +411,17 @@ export function handleLobbyMessage(msg) {
   }
 }
 
-// ─── VOID ANIMATION (call each frame when in lobby) ─────────────────
+// ─── GARDEN LOBBY ANIMATION (call each frame when in lobby) ─────────
 export function updateVoidScene(time) {
-  if (!inLobby || !voidStars) return;
-  voidStars.rotation.y = time * 0.02;
-  voidStars.rotation.x = Math.sin(time * 0.01) * 0.05;
+  if (!inLobby) return;
+  // Animate butterflies
+  lobbyButterflies.forEach(bfly => {
+    const d = bfly.userData;
+    bfly.position.x = d.baseX + Math.sin(time * d.speed + d.phase) * 2;
+    bfly.position.y = d.baseY + Math.sin(time * d.speed * 1.3 + d.phase) * 0.5;
+    bfly.position.z = d.baseZ + Math.cos(time * d.speed * 0.8 + d.phase) * 2;
+    bfly.rotation.y = time * 3;
+  });
 }
 
 // ─── INIT LOBBY UI BUTTONS ─────────────────────────────────────────

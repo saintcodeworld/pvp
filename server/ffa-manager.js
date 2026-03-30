@@ -6,7 +6,7 @@ const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = (supabaseUrl && supabaseKey) ? createClient(supabaseUrl, supabaseKey) : null;
 
 const FFA_MAX_PLAYERS = 8;
-const FFA_ARENA_SIZE = 60; // 60x60 arena for 8 players
+const FFA_ARENA_SIZE = 40; // 40x40 arena for 8 players
 const FFA_HEART_HP = 45;
 const FFA_HIT_DAMAGE = 10;
 const FFA_HIT_COOLDOWN = 300; // ms
@@ -18,6 +18,26 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
   const ffaMatches = new Map(); // matchId -> match state
   const playerMatchIndex = new Map(); // playerId -> matchId (O(1) lookup)
   let nextFFAId = 1;
+  let botManager = null; // set externally after both managers are created
+
+  function setBotManager(bm) { botManager = bm; }
+
+  /** Human eliminated mid-match — send them back to the museum immediately */
+  function returnEliminatedHumanToMuseum(targetId) {
+    const targetPlayer = players.get(targetId);
+    if (!targetPlayer || targetPlayer.isBot) return;
+
+    playerMatchIndex.delete(targetId);
+    if (targetPlayer.room !== 'museum') {
+      changeRoom(targetId, 'museum');
+    }
+    targetPlayer.state.x = 0;
+    targetPlayer.state.y = 2.7;
+    targetPlayer.state.z = -28;
+
+    sendTo(targetId, { type: 'returned_to_museum', players: getMuseumPlayers() });
+    broadcastToRoom('museum', { type: 'player_join', player: targetPlayer.state }, targetId);
+  }
 
   function getQueueCount() { return queue.length; }
 
@@ -37,17 +57,22 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
 
     switch (msg.type) {
       case 'ffa_join_queue': {
-        // Check not already in queue
         if (queue.some(p => p.id === playerId)) {
           sendTo(playerId, { type: 'ffa_error', message: 'Already in queue' });
           break;
         }
         queue.push({ id: playerId, name: player.state.name });
-        changeRoom(playerId, 'ffa_queue');
-        broadcastToRoom('museum', { type: 'player_leave', id: playerId }, playerId);
+        // Player stays in museum room — can keep walking around
         broadcastQueueUpdate();
 
-        // Check if queue is full
+        if (queue.length >= FFA_MAX_PLAYERS) {
+          startFFAMatch();
+        }
+        break;
+      }
+
+      case 'ffa_join_queue_check_start': {
+        // Triggered by bot-manager after adding a bot to check if we should start
         if (queue.length >= FFA_MAX_PLAYERS) {
           startFFAMatch();
         }
@@ -58,10 +83,8 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
         const idx = queue.findIndex(p => p.id === playerId);
         if (idx !== -1) {
           queue.splice(idx, 1);
-          changeRoom(playerId, 'museum');
-          // Return to museum
-          sendTo(playerId, { type: 'returned_to_museum', players: getMuseumPlayers() });
-          broadcastToRoom('museum', { type: 'player_join', player: player.state }, playerId);
+          // Player was never moved out of museum — just update queue
+          sendTo(playerId, { type: 'ffa_queue_left' });
           broadcastQueueUpdate();
         }
         break;
@@ -118,7 +141,7 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
           const dx = defender.x - attacker.x;
           const dz = defender.z - attacker.z;
           const dist = Math.sqrt(dx * dx + dz * dz);
-          if (dist > 2.5) return;
+          if (dist > 3.5) return;
 
           const toDefenderAngle = Math.atan2(dx, dz);
           let angleDiff = attackAngle - toDefenderAngle;
@@ -137,6 +160,8 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
             defenderId: targetId,
             defenderHp: match.hp[targetId],
             attackerHp: match.hp[playerId],
+            attackerX: attacker.x,
+            attackerZ: attacker.z,
           });
 
           // Forward swing animation
@@ -157,6 +182,7 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
               eliminatedName: targetPlayer.state.name,
               remaining: match.alive.size,
             });
+            returnEliminatedHumanToMuseum(targetId);
             checkFFAEnd(match);
           }
         });
@@ -192,8 +218,9 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
 
     ffaMatches.set(matchId, match);
 
-    // Move all to ffa_arena room
+    // Move all from museum to ffa_arena room
     playerIds.forEach(pid => {
+      broadcastToRoom('museum', { type: 'player_leave', id: pid }, pid);
       changeRoom(pid, 'ffa_arena');
       playerMatchIndex.set(pid, matchId);
     });
@@ -201,6 +228,14 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
     // Send setup to all players with spawn positions
     const spawnPositions = generateSpawnPositions(playerIds.length);
     playerIds.forEach((pid, idx) => {
+      const p = players.get(pid);
+      // Apply spawn position to player state (critical for bots)
+      if (p) {
+        p.state.x = spawnPositions[idx].x;
+        p.state.y = 1.7;
+        p.state.z = spawnPositions[idx].z;
+      }
+
       sendTo(pid, {
         type: 'ffa_arena_setup',
         matchId,
@@ -221,7 +256,7 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
 
   function generateSpawnPositions(count) {
     const positions = [];
-    const radius = 20;
+    const radius = 14;
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2;
       positions.push({
@@ -255,6 +290,9 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
         }
       }
       checkFFAHeartPickups(match);
+
+      // Tick bot AI
+      if (botManager) botManager.tickBots(match);
     }
   }
 
@@ -323,11 +361,22 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
     // Save to Supabase
     saveFFAResults(placements);
 
-    // Return all players to museum after delay
+    // Clean up bots
+    if (botManager) botManager.cleanupBotsForMatch(match.playerIds);
+
+    // Return remaining players to museum after delay (eliminated players already left)
     setTimeout(() => {
       match.playerIds.forEach(pid => {
         const player = players.get(pid);
         if (!player) return;
+        if (player.isBot) {
+          playerMatchIndex.delete(pid);
+          return;
+        }
+        if (player.room === 'museum') {
+          playerMatchIndex.delete(pid);
+          return;
+        }
         changeRoom(pid, 'museum');
         player.state.x = 0;
         player.state.y = 2.7;
@@ -390,7 +439,7 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
     match.playerIds.forEach(pid => sendTo(pid, msg));
   }
 
-  return { handleMessage, handleDisconnect, getQueueCount, queue };
+  return { handleMessage, handleDisconnect, getQueueCount, queue, setBotManager, ffaMatches };
 }
 
 export { setupFFAManager };

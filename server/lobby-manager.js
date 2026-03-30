@@ -107,6 +107,11 @@ function setupLobbyManager(players, broadcastToRoom, sendTo, changeRoom, getMuse
         const lobbyId = nextLobbyId++;
         const code = isPrivate ? generateLobbyCode() : null;
 
+        let creatorTeam = 1;
+        if (mode === '2v2' && (msg.team === 1 || msg.team === 2)) {
+          creatorTeam = msg.team;
+        }
+
         const lobby = {
           id: lobbyId,
           mode,
@@ -114,7 +119,7 @@ function setupLobbyManager(players, broadcastToRoom, sendTo, changeRoom, getMuse
           code,
           creatorId: playerId,
           creatorName: player.state.name,
-          players: [{ id: playerId, name: player.state.name, team: 1 }],
+          players: [{ id: playerId, name: player.state.name, team: creatorTeam }],
           maxPlayers,
           status: 'waiting',
           matchCreated: false,
@@ -159,12 +164,15 @@ function setupLobbyManager(players, broadcastToRoom, sendTo, changeRoom, getMuse
           break;
         }
 
-        // Assign team for 2v2 (balance teams)
+        // Assign team for 2v2 — honor preference if slot free, else balance
         let team = 1;
         if (lobby.mode === '2v2') {
           const team1Count = lobby.players.filter(p => p.team === 1).length;
           const team2Count = lobby.players.filter(p => p.team === 2).length;
-          team = team1Count <= team2Count ? 1 : 2;
+          const want = (msg.team === 1 || msg.team === 2) ? msg.team : null;
+          if (want === 1 && team1Count < 2) team = 1;
+          else if (want === 2 && team2Count < 2) team = 2;
+          else team = team1Count <= team2Count ? 1 : 2;
         }
 
         lobby.players.push({ id: playerId, name: player.state.name, team });
@@ -204,7 +212,7 @@ function setupLobbyManager(players, broadcastToRoom, sendTo, changeRoom, getMuse
           break;
         }
         // Re-use join_lobby logic
-        handleMessage(playerId, { type: 'join_lobby', lobbyId: foundLobby.id });
+        handleMessage(playerId, { type: 'join_lobby', lobbyId: foundLobby.id, team: msg.team });
         break;
       }
 
@@ -310,6 +318,23 @@ function setupLobbyManager(players, broadcastToRoom, sendTo, changeRoom, getMuse
   }
 
   function handleDisconnect(playerId) {
+    // Match loading (game_starting sent but createMatch not yet run) — cancel for everyone
+    const cancelLoadIds = [];
+    lobbies.forEach((lobby, lobbyId) => {
+      if (lobby.status === 'in_game' && !lobby.matchCreated) {
+        const idx = lobby.players.findIndex(p => p.id === playerId);
+        if (idx !== -1) cancelLoadIds.push(lobbyId);
+      }
+    });
+    cancelLoadIds.forEach((lobbyId) => {
+      const lobby = lobbies.get(lobbyId);
+      if (!lobby) return;
+      lobby.players.forEach(p => {
+        if (p.id !== playerId) sendTo(p.id, { type: 'lobby_cancelled' });
+      });
+      lobbies.delete(lobbyId);
+    });
+
     lobbies.forEach((lobby, lobbyId) => {
       if (lobby.status === 'waiting') {
         if (lobby.creatorId === playerId) {

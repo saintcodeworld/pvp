@@ -471,42 +471,27 @@
       padding: 4px 0; border-bottom: 1px solid rgba(100,50,180,0.2);
     }
 
-    /* ─── FFA QUEUE UI ─── */
-    #ffa-queue-ui {
-      position: fixed; inset: 0; z-index: 85;
-      display: none; align-items: center; justify-content: center;
-      flex-direction: column;
-    }
-    .ffa-queue-panel {
-      background: rgba(20,10,5,0.95); border: 2px solid #ff6633;
-      border-radius: 8px; padding: 40px; text-align: center;
-      width: 360px; max-width: 90vw;
-    }
-    .ffa-queue-panel h2 {
-      color: #ff6633; font-size: 1.3rem; margin-bottom: 16px;
-      font-family: 'Courier New', monospace; text-transform: uppercase;
-      letter-spacing: 2px;
-    }
-    #ffa-queue-count {
-      color: #f5a623; font-size: 1.1rem; margin-bottom: 12px;
+    /* ─── FFA QUEUE HUD BAR (non-blocking, top-center) ─── */
+    #ffa-queue-bar {
+      position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+      z-index: 90; display: none;
+      background: rgba(20,10,5,0.88); border: 2px solid #ff6633;
+      border-radius: 8px; padding: 10px 28px;
+      text-align: center; pointer-events: none;
       font-family: 'Courier New', monospace;
+      min-width: 240px;
+      box-shadow: 0 0 18px rgba(255,100,50,0.25);
     }
-    #ffa-queue-players {
-      margin: 12px 0; color: #ccc; font-size: 0.85rem;
-      font-family: 'Courier New', monospace; max-height: 200px;
-      overflow-y: auto;
+    #ffa-queue-bar .ffa-queue-title {
+      color: #ff6633; font-size: 0.85rem; font-weight: bold;
+      text-transform: uppercase; letter-spacing: 2px;
+      margin-bottom: 4px;
     }
-    #ffa-queue-players div {
-      padding: 4px 0; border-bottom: 1px solid rgba(255,100,50,0.15);
+    #ffa-queue-bar .ffa-queue-count {
+      color: #f5a623; font-size: 1.1rem; font-weight: bold;
     }
-    .ffa-queue-spinner {
-      color: #ff6633; font-size: 1.5rem;
-      animation: ffa-spin 1.5s linear infinite;
-      margin-bottom: 12px;
-    }
-    @keyframes ffa-spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
+    #ffa-queue-bar .ffa-queue-hint {
+      color: #888; font-size: 0.7rem; margin-top: 4px;
     }
 
     /* ─── FFA HUD ─── */
@@ -780,6 +765,19 @@
           <button class="lobby-btn private" id="lobby-create-private-1v1">1v1 Private</button>
           <button class="lobby-btn private" id="lobby-create-private-2v2">2v2 Private</button>
         </div>
+        <div class="lobby-team-row" style="margin-top:10px;font-size:0.9rem;color:#ccc;">
+          <label for="lobby-create-team">2v2 — your team when hosting:</label>
+          <select id="lobby-create-team" style="margin-left:8px;">
+            <option value="1">Team 1 (blue)</option>
+            <option value="2">Team 2 (red)</option>
+          </select>
+          <label for="lobby-join-team" style="margin-left:16px;">when joining 2v2:</label>
+          <select id="lobby-join-team" style="margin-left:8px;">
+            <option value="">Auto (balance)</option>
+            <option value="1">Prefer team 1</option>
+            <option value="2">Prefer team 2</option>
+          </select>
+        </div>
       </div>
       <div class="lobby-mode-section">
         <h4>Join Private</h4>
@@ -836,15 +834,11 @@
   <div id="combat-overlay"></div>
   <div id="damage-flash"></div>
 
-  <!-- FFA QUEUE UI -->
-  <div id="ffa-queue-ui">
-    <div class="ffa-queue-panel">
-      <h2>⚔ Battle Royale</h2>
-      <div class="ffa-queue-spinner">⟳</div>
-      <div id="ffa-queue-count">0/8 Players</div>
-      <div id="ffa-queue-players"></div>
-      <button class="lobby-btn cancel" id="ffa-queue-leave-btn">Leave Queue</button>
-    </div>
+  <!-- FFA QUEUE HUD BAR (non-blocking) -->
+  <div id="ffa-queue-bar">
+    <div class="ffa-queue-title">Battle Royale Queue</div>
+    <div class="ffa-queue-count" id="ffa-queue-count">0/8 Players</div>
+    <div class="ffa-queue-hint">Press <strong style="color:#ff6633;">Q</strong> to leave queue</div>
   </div>
 
   <!-- FFA COMBAT HUD -->

@@ -18,8 +18,10 @@ import {
 } from './player.js';
 import {
   connectWebSocket, sendPositionUpdate, sendSwing, setMyPlayerName,
+  requestMuseumPlayerResync,
   setMultiplayerScene, setMultiplayerCamera, setExternalMessageHandler,
-  updateRemotePlayers, openChat, closeChat, sendChatMessage,
+  updateRemotePlayers, hideRemotePlayers, showRemotePlayers,
+  openChat, closeChat, sendChatMessage,
   ws, myPlayerName, myPlayerId
 } from './multiplayer.js';
 import {
@@ -82,6 +84,28 @@ function safeRequestPointerLock() {
   }
 }
 
+// Combat resume overlay — shown when pointer lock is lost during arena/FFA
+function showCombatResumeOverlay() {
+  let overlay = document.getElementById('combat-resume-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'combat-resume-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);cursor:pointer;';
+    overlay.innerHTML = '<div style="color:#fff;font-family:Courier New,monospace;font-size:24px;text-align:center;text-shadow:0 2px 8px #000;"><div style="font-size:36px;margin-bottom:12px;">⚔️ PAUSED</div>Click to Resume</div>';
+    overlay.addEventListener('click', () => {
+      hideCombatResumeOverlay();
+      safeRequestPointerLock();
+    });
+    document.body.appendChild(overlay);
+  }
+  overlay.style.display = 'flex';
+}
+
+function hideCombatResumeOverlay() {
+  const overlay = document.getElementById('combat-resume-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
 // ─── CONTROLS SETUP ─────────────────────────────────────────────────
 function setupControls() {
   const canvas = renderer.domElement;
@@ -95,9 +119,9 @@ function setupControls() {
     safeRequestPointerLock();
   }, 500); // Small delay to ensure everything is loaded
 
-  // Click canvas to re-lock pointer
+  // Click canvas to re-lock pointer (works in all game states)
   canvas.addEventListener('click', () => {
-    if (!isLocked && gameState === 'museum') {
+    if (!isLocked) {
       safeRequestPointerLock();
     }
   });
@@ -105,29 +129,36 @@ function setupControls() {
   document.addEventListener('pointerlockchange', () => {
     if (document.pointerLockElement === canvas) {
       setIsLocked(true);
-      escapeMode = false; // Reset escape mode when re-locking
+      escapeMode = false;
       if (blocker) blocker.style.display = 'none';
-      if (gameState === 'museum') {
+      hideCombatResumeOverlay();
+      if (gameState === 'museum' || gameState === 'ffa_queue') {
         document.getElementById('crosshair').style.display = 'block';
         document.getElementById('hud').style.display = 'block';
         document.getElementById('social-bar').style.display = 'flex';
         if (minimapVisible) document.getElementById('minimap').style.display = 'block';
       }
+      if (gameState === 'arena' || gameState === 'ffa') {
+        document.getElementById('crosshair').style.display = 'block';
+      }
     } else {
       if (!exhibitOpen) {
         setIsLocked(false);
-        // Only show blocker on initial load / non-escape situations in museum
-        if (gameState === 'museum' && !escapeMode) {
+        resetAllInputState();
+        if ((gameState === 'museum' || gameState === 'ffa_queue') && !escapeMode) {
           if (blocker) blocker.style.display = 'flex';
         }
-        // Keep all HUD elements visible in museum (even when ESC is pressed)
-        if (gameState === 'museum') {
+        if (gameState === 'museum' || gameState === 'ffa_queue') {
           document.getElementById('crosshair').style.display = 'none';
           document.getElementById('hud').style.display = 'block';
           document.getElementById('social-bar').style.display = 'flex';
-          document.getElementById('player-count').style.display = 'block';
+          if (gameState === 'museum') document.getElementById('player-count').style.display = 'block';
           document.getElementById('chat-box').style.display = 'flex';
           if (minimapVisible) document.getElementById('minimap').style.display = 'block';
+        }
+        if (gameState === 'arena' || gameState === 'ffa') {
+          document.getElementById('crosshair').style.display = 'none';
+          showCombatResumeOverlay();
         }
       }
     }
@@ -176,7 +207,7 @@ function setupControls() {
           setExhibitOpen(false);
           closeExhibitPanel();
           e.preventDefault();
-        } else if (isLocked && gameState === 'museum') {
+        } else if (isLocked && (gameState === 'museum' || gameState === 'ffa_queue')) {
           // Exit pointer lock to show cursor and allow HUD interaction
           escapeMode = true;
           document.exitPointerLock();
@@ -192,6 +223,9 @@ function setupControls() {
       case 'Digit7': selectHotbarSlot(6); break;
       case 'Digit8': selectHotbarSlot(7); break;
       case 'Digit9': selectHotbarSlot(8); break;
+      case 'KeyQ':
+        if (gameState === 'ffa_queue') leaveFFAQueue();
+        break;
       case 'KeyV':
         if (!e.repeat) startTalking();
         break;
@@ -235,10 +269,15 @@ function handleInteract() {
 
   if (currentExhibit) {
     if (currentExhibit === 'pvp_portal') {
+      if (gameState === 'ffa_queue') return;
       enterPVPLobby();
       return;
     }
     if (currentExhibit === 'ffa_queue') {
+      if (gameState === 'ffa_queue') {
+        leaveFFAQueue();
+        return;
+      }
       enterFFAQueue();
       return;
     }
@@ -262,8 +301,9 @@ function setMuseumVisible(visible) {
     scene.fog = new THREE.Fog(0x87ceeb, 50, 120);
     scene.background = null;
   } else {
-    scene.fog = new THREE.Fog(0x050010, 20, 80);
-    scene.background = new THREE.Color(0x050010);
+    // Garden flat world: light blue sky fog
+    scene.fog = new THREE.Fog(0x87ceeb, 60, 140);
+    scene.background = new THREE.Color(0x87ceeb);
   }
 }
 
@@ -271,6 +311,7 @@ function enterPVPLobby() {
   gameState = 'lobby';
   setMuseumVisible(false);
   setCollisionEnabled(false);
+  hideRemotePlayers();
 
   // Hide museum HUD elements
   document.getElementById('hud').style.display = 'none';
@@ -305,19 +346,29 @@ function returnToMuseum() {
   gameState = 'museum';
   setMuseumVisible(true);
   setCollisionEnabled(true);
+  showRemotePlayers();
 
-  // Respawn at museum entrance
+  // Respawn at museum entrance, facing PVP portal (+Z)
   playerPos.set(0, playerHeight + floorY, -28);
+  setYaw(Math.PI);
 
   // Hide blocker when returning to museum
   const blocker = document.getElementById('blocker');
   if (blocker) blocker.style.display = 'none';
 
+  // Hide FFA queue bar if it was visible
+  const queueBar = document.getElementById('ffa-queue-bar');
+  if (queueBar) queueBar.style.display = 'none';
+
+  hideCombatResumeOverlay();
+
   // Restore hand models
   showHandModels();
 
-  // Show settings button
+  // Show museum HUD elements
+  document.getElementById('hud').style.display = 'block';
   document.getElementById('settings-btn').style.display = 'flex';
+  document.getElementById('player-count').style.display = 'block';
 
   // Re-lock pointer for museum
   safeRequestPointerLock();
@@ -327,8 +378,8 @@ function enterPVPArena(gameData) {
   gameState = 'arena';
   setMuseumVisible(false);
   setCollisionEnabled(false);
-  scene.fog = new THREE.Fog(0x050010, 30, 60);
-  scene.background = new THREE.Color(0x050010);
+  scene.fog = new THREE.Fog(0x87ceeb, 60, 140);
+  scene.background = new THREE.Color(0x87ceeb);
 
   // Restore hand models for combat
   showHandModels();
@@ -349,16 +400,12 @@ function enterPVPArena(gameData) {
 function enterFFAQueue() {
   gameState = 'ffa_queue';
 
-  // Hide museum HUD
-  document.getElementById('hud').style.display = 'none';
-  document.getElementById('crosshair').style.display = 'none';
-  document.getElementById('interact-prompt').style.display = 'none';
-  document.getElementById('minimap').style.display = 'none';
-  document.getElementById('settings-btn').style.display = 'none';
+  // Show non-blocking queue bar — player keeps walking in museum
+  const bar = document.getElementById('ffa-queue-bar');
+  if (bar) bar.style.display = 'block';
 
-  // Show FFA queue UI
-  const queueUI = document.getElementById('ffa-queue-ui');
-  if (queueUI) queueUI.style.display = 'flex';
+  // Hide the regular player count since the queue bar replaces it
+  document.getElementById('player-count').style.display = 'none';
 
   // Tell server to join FFA queue
   if (ws && ws.readyState === 1) {
@@ -370,26 +417,37 @@ function leaveFFAQueue() {
   if (ws && ws.readyState === 1) {
     ws.send(JSON.stringify({ type: 'ffa_leave_queue' }));
   }
-  const queueUI = document.getElementById('ffa-queue-ui');
-  if (queueUI) queueUI.style.display = 'none';
+  const bar = document.getElementById('ffa-queue-bar');
+  if (bar) bar.style.display = 'none';
   gameState = 'museum';
 
-  // Restore museum HUD
-  document.getElementById('hud').style.display = 'block';
-  document.getElementById('settings-btn').style.display = 'flex';
-  if (isLocked) document.getElementById('crosshair').style.display = 'block';
+  // Restore player count display
+  document.getElementById('player-count').style.display = 'block';
 }
 
 function enterFFAArena(setupData) {
   gameState = 'ffa';
   setMuseumVisible(false);
   setCollisionEnabled(false);
-  scene.fog = new THREE.Fog(0x100005, 40, 80);
-  scene.background = new THREE.Color(0x100005);
+  hideRemotePlayers();
+  scene.fog = new THREE.Fog(0x87ceeb, 60, 140);
+  scene.background = new THREE.Color(0x87ceeb);
 
-  // Hide queue UI
-  const queueUI = document.getElementById('ffa-queue-ui');
-  if (queueUI) queueUI.style.display = 'none';
+  // Hide queue bar and museum HUD
+  const bar = document.getElementById('ffa-queue-bar');
+  if (bar) bar.style.display = 'none';
+  document.getElementById('hud').style.display = 'none';
+  document.getElementById('crosshair').style.display = 'none';
+  document.getElementById('interact-prompt').style.display = 'none';
+  document.getElementById('minimap').style.display = 'none';
+  document.getElementById('social-bar').style.display = 'none';
+  document.getElementById('player-count').style.display = 'none';
+  document.getElementById('chat-box').style.display = 'none';
+  document.getElementById('settings-btn').style.display = 'none';
+
+  // Hide blocker if showing
+  const blocker = document.getElementById('blocker');
+  if (blocker) blocker.style.display = 'none';
 
   // Restore hand models for combat
   showHandModels();
@@ -463,16 +521,16 @@ async function init() {
 
     // FFA-specific messages
     const ffaMsgTypes = [
-      'ffa_queue_update', 'ffa_arena_setup', 'ffa_round_start',
+      'ffa_queue_update', 'ffa_queue_left', 'ffa_arena_setup', 'ffa_round_start',
       'ffa_player_eliminated', 'ffa_match_end', 'ffa_error'
     ];
     if (ffaMsgTypes.includes(msg.type)) {
       if (msg.type === 'ffa_queue_update') {
-        // Update queue UI
         const countEl = document.getElementById('ffa-queue-count');
         if (countEl) countEl.textContent = `${msg.count}/${msg.max} Players`;
-        const listEl = document.getElementById('ffa-queue-players');
-        if (listEl) listEl.innerHTML = (msg.players || []).map(n => `<div>${n}</div>`).join('');
+        return;
+      }
+      if (msg.type === 'ffa_queue_left') {
         return;
       }
       if (msg.type === 'ffa_arena_setup') {
@@ -584,11 +642,7 @@ async function init() {
   await sleep(50);
   initLobbyUI();
 
-  // FFA queue leave button
-  const ffaLeaveBtn = document.getElementById('ffa-queue-leave-btn');
-  if (ffaLeaveBtn) {
-    ffaLeaveBtn.addEventListener('click', () => leaveFFAQueue());
-  }
+  // FFA queue leave is now handled by Q key press
 
   // Detect mobile and init touch controls
   detectMobile();
@@ -606,6 +660,17 @@ async function init() {
   window.addEventListener('lobby-exit', () => {
     returnToMuseum();
   });
+
+  window.addEventListener('lobby-match-aborted', () => {
+    if (gameState === 'arena') {
+      exitArena();
+      returnToMuseum();
+    }
+  });
+
+  setInterval(() => {
+    if (gameState === 'museum' || gameState === 'ffa_queue') requestMuseumPlayerResync();
+  }, 5000);
 
   updateLoading(95, 'Preparing multiplayer...');
   await sleep(50);
@@ -626,8 +691,9 @@ async function init() {
 
   document.getElementById('loading').style.display = 'none';
 
-  // Position player at entrance
+  // Position player at entrance, facing PVP portal (+Z)
   playerPos.set(0, playerHeight + floorY, -28);
+  setYaw(Math.PI);
 
   window.addEventListener('resize', onResize);
   setupVisibilityHandler();
@@ -651,6 +717,7 @@ function resetAllInputState() {
   setMoveBackward(false);
   setMoveLeft(false);
   setMoveRight(false);
+  setSpacePressed(false);
   velocity.set(0, 0, 0);
 }
 
@@ -670,7 +737,7 @@ function setupVisibilityHandler() {
           }
           if (gameState === 'arena') sendArenaPositionUpdate();
           if (gameState === 'ffa') sendFFAPositionUpdate();
-          if (gameState === 'museum') sendPositionUpdate();
+          if (gameState === 'museum' || gameState === 'ffa_queue') sendPositionUpdate();
         }, 1000); // 1s interval is enough for keepalive
       }
     } else {
@@ -692,6 +759,16 @@ function setupVisibilityHandler() {
         ws.send(JSON.stringify({ type: 'resync' }));
       }
 
+      // If pointer lock was lost (browsers always release it on tab switch),
+      // show the resume overlay so the player can click to re-lock
+      if (gameState === 'arena' || gameState === 'ffa') {
+        const hasLock = document.pointerLockElement === renderer?.domElement;
+        if (!hasLock) {
+          setIsLocked(false);
+          showCombatResumeOverlay();
+        }
+      }
+
       // If the animation loop died, restart it
       // Delay the check because rAF is paused while hidden — give it time to resume
       setTimeout(() => {
@@ -710,27 +787,26 @@ function setupVisibilityHandler() {
 
 // ─── FOCUS HANDLER (Pointer Lock re-initialization) ──────────────────
 function setupFocusHandler() {
-  window.addEventListener('focus', () => {
-    // Reset frame time on focus to prevent delta spike
-    lastFrameTime = performance.now();
+  // Immediately reset inputs on blur to prevent stuck keys
+  window.addEventListener('blur', () => {
+    resetAllInputState();
+  });
 
-    // Hard-reset inputs (focus can fire without visibilitychange)
+  window.addEventListener('focus', () => {
+    lastFrameTime = performance.now();
     resetAllInputState();
 
-    // Re-acquire pointer lock if the game expects it
-    // Use a short delay — browsers block immediate pointer lock after focus
     setTimeout(() => {
       if (document.hidden) return;
       const hasLock = document.pointerLockElement === renderer?.domElement;
-      if (!hasLock && gameState === 'museum' && !exhibitOpen && !escapeMode) {
-        // Show the blocker so the user can click to resume
+      if (!hasLock && (gameState === 'museum' || gameState === 'ffa_queue') && !exhibitOpen && !escapeMode) {
         const blocker = document.getElementById('blocker');
         if (blocker) blocker.style.display = 'flex';
         setIsLocked(false);
       }
       if (!hasLock && (gameState === 'arena' || gameState === 'ffa')) {
-        // Arena/FFA needs pointer lock — prompt re-lock on click
-        safeRequestPointerLock();
+        setIsLocked(false);
+        showCombatResumeOverlay();
       }
     }, 100);
   });
@@ -764,8 +840,8 @@ function animate() {
       // Update camera for all states
       updateCamera();
 
-      // ─── MUSEUM STATE ───
-      if (gameState === 'museum') {
+      // ─── MUSEUM STATE (also active during ffa_queue) ───
+      if (gameState === 'museum' || gameState === 'ffa_queue') {
         updatePlayerMovement(delta);
 
         // Check for nearby interactables
@@ -858,8 +934,8 @@ function animate() {
         }
       }
 
-      // Hand animation (runs in museum, arena, and FFA)
-      if (gameState === 'museum' || gameState === 'arena' || gameState === 'ffa') {
+      // Hand animation (runs in museum, ffa_queue, arena, and FFA)
+      if (gameState === 'museum' || gameState === 'ffa_queue' || gameState === 'arena' || gameState === 'ffa') {
         updateHandAnimation(delta, time);
       }
 

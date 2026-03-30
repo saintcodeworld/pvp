@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { ws } from './multiplayer.js';
-import { playerPos, yaw, pitch, activeSlot, isSwinging } from './player.js';
+import { playerPos, yaw, pitch, activeSlot, isSwinging, setYaw, velocity } from './player.js';
 
 // ─── ARENA STATE ────────────────────────────────────────────────────
 let inArena = false;
@@ -46,48 +46,218 @@ function buildArena() {
 
   const ARENA_SIZE = 30;
   const HALF = ARENA_SIZE / 2;
+  const GROUND_EXTEND = 80;
 
-  // 30x30 floor
-  const floorGeo = new THREE.BoxGeometry(ARENA_SIZE, 0.5, ARENA_SIZE);
-  const floorMat = new THREE.MeshLambertMaterial({ color: 0x333344 });
-  const floor = new THREE.Mesh(floorGeo, floorMat);
-  floor.position.set(0, -0.25, 0);
-  floor.receiveShadow = true;
-  arenaGroup.add(floor);
+  // ── Grass floor (Minecraft flat world style) ──
+  const grassColor = 0x5b8c33;
+  const grassDarkColor = 0x4a7a28;
 
-  // Floor grid lines
-  const gridMat = new THREE.MeshBasicMaterial({ color: 0x4a4a6a });
-  for (let i = -HALF; i <= HALF; i += 3) {
-    const lineH = new THREE.Mesh(new THREE.BoxGeometry(ARENA_SIZE, 0.02, 0.05), gridMat);
-    lineH.position.set(0, 0.01, i);
-    arenaGroup.add(lineH);
-    const lineV = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.02, ARENA_SIZE), gridMat);
-    lineV.position.set(i, 0.01, 0);
-    arenaGroup.add(lineV);
+  // Main arena floor — checkerboard grass blocks
+  for (let x = -HALF; x < HALF; x += 1) {
+    for (let z = -HALF; z < HALF; z += 1) {
+      const isAlt = (Math.abs(x) + Math.abs(z)) % 2 === 0;
+      const blockGeo = new THREE.BoxGeometry(1, 0.5, 1);
+      const blockMat = new THREE.MeshLambertMaterial({ color: isAlt ? grassColor : grassDarkColor });
+      const block = new THREE.Mesh(blockGeo, blockMat);
+      block.position.set(x + 0.5, -0.25, z + 0.5);
+      block.receiveShadow = true;
+      arenaGroup.add(block);
+    }
   }
 
-  // Corner pillars with glow
-  const pillarGeo = new THREE.BoxGeometry(0.7, 5, 0.7);
-  const pillarMat = new THREE.MeshBasicMaterial({ color: 0x9933ff });
-  [[-HALF, -HALF], [HALF, -HALF], [-HALF, HALF], [HALF, HALF]].forEach(([x, z]) => {
-    const pillar = new THREE.Mesh(pillarGeo, pillarMat);
-    pillar.position.set(x, 2.5, z);
-    arenaGroup.add(pillar);
-    const light = new THREE.PointLight(0x9933ff, 1.5, 20);
-    light.position.set(x, 4, z);
-    arenaGroup.add(light);
+  // Extended ground plane beyond the arena (lower detail, flat grass)
+  const outerGeo = new THREE.PlaneGeometry(GROUND_EXTEND * 2, GROUND_EXTEND * 2);
+  const outerMat = new THREE.MeshLambertMaterial({ color: 0x5b8c33 });
+  const outerGround = new THREE.Mesh(outerGeo, outerMat);
+  outerGround.rotation.x = -Math.PI / 2;
+  outerGround.position.set(0, -0.5, 0);
+  outerGround.receiveShadow = true;
+  arenaGroup.add(outerGround);
+
+  // Dirt layer visible at edges
+  const dirtGeo = new THREE.BoxGeometry(ARENA_SIZE, 0.3, ARENA_SIZE);
+  const dirtMat = new THREE.MeshLambertMaterial({ color: 0x8B6914 });
+  const dirt = new THREE.Mesh(dirtGeo, dirtMat);
+  dirt.position.set(0, -0.65, 0);
+  arenaGroup.add(dirt);
+
+  // ── Boundary fence (oak wood fence posts) ──
+  const fenceColor = 0x9C7A3C;
+  const fencePostGeo = new THREE.BoxGeometry(0.25, 1.2, 0.25);
+  const fenceRailGeo = new THREE.BoxGeometry(0.15, 0.15, 1);
+  const fenceMat = new THREE.MeshLambertMaterial({ color: fenceColor });
+
+  for (let i = -HALF; i <= HALF; i += 2) {
+    // North & South edges
+    [[-HALF, i], [HALF, i]].forEach(([edgeX, edgeZ]) => {
+      const post = new THREE.Mesh(fencePostGeo, fenceMat);
+      post.position.set(edgeX, 0.6, edgeZ);
+      post.castShadow = true;
+      arenaGroup.add(post);
+    });
+    // East & West edges
+    [[i, -HALF], [i, HALF]].forEach(([edgeX, edgeZ]) => {
+      const post = new THREE.Mesh(fencePostGeo, fenceMat);
+      post.position.set(edgeX, 0.6, edgeZ);
+      post.castShadow = true;
+      arenaGroup.add(post);
+    });
+  }
+
+  // Fence rails connecting posts
+  for (let i = -HALF; i < HALF; i += 2) {
+    const railGeo2 = new THREE.BoxGeometry(0.1, 0.1, 2);
+    // North/South rails
+    [[-HALF, i + 1], [HALF, i + 1]].forEach(([edgeX, midZ]) => {
+      [0.35, 0.85].forEach(h => {
+        const rail = new THREE.Mesh(railGeo2, fenceMat);
+        rail.position.set(edgeX, h, midZ);
+        arenaGroup.add(rail);
+      });
+    });
+    const railGeoH = new THREE.BoxGeometry(2, 0.1, 0.1);
+    // East/West rails
+    [[i + 1, -HALF], [i + 1, HALF]].forEach(([midX, edgeZ]) => {
+      [0.35, 0.85].forEach(h => {
+        const rail = new THREE.Mesh(railGeoH, fenceMat);
+        rail.position.set(midX, h, edgeZ);
+        arenaGroup.add(rail);
+      });
+    });
+  }
+
+  // ── Trees (Minecraft oak-style, blocky) ──
+  function createTree(x, z) {
+    const trunkColor = 0x6B4226;
+    const leafColor = 0x2D8C2D;
+    const leafAltColor = 0x3BA33B;
+
+    // Trunk (3-5 blocks tall)
+    const trunkHeight = 4 + Math.floor(Math.random() * 2);
+    for (let y = 0; y < trunkHeight; y++) {
+      const trunkBlock = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshLambertMaterial({ color: trunkColor })
+      );
+      trunkBlock.position.set(x, y + 0.5, z);
+      trunkBlock.castShadow = true;
+      arenaGroup.add(trunkBlock);
+    }
+
+    // Leaf canopy (blocky sphere-ish shape)
+    const leafStart = trunkHeight - 1;
+    for (let ly = 0; ly < 3; ly++) {
+      const radius = ly === 2 ? 1 : 2;
+      for (let lx = -radius; lx <= radius; lx++) {
+        for (let lz = -radius; lz <= radius; lz++) {
+          if (lx === 0 && lz === 0 && ly < 2) continue; // trunk passes through
+          if (Math.abs(lx) === radius && Math.abs(lz) === radius && Math.random() > 0.5) continue;
+          const leafBlock = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1),
+            new THREE.MeshLambertMaterial({ color: Math.random() > 0.3 ? leafColor : leafAltColor })
+          );
+          leafBlock.position.set(x + lx, leafStart + ly + 0.5, z + lz);
+          leafBlock.castShadow = true;
+          arenaGroup.add(leafBlock);
+        }
+      }
+    }
+    // Top leaf
+    const topLeaf = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshLambertMaterial({ color: leafColor })
+    );
+    topLeaf.position.set(x, leafStart + 3.5, z);
+    arenaGroup.add(topLeaf);
+  }
+
+  // Place trees around the arena (outside the play area)
+  const treePositions = [
+    [-18, -18], [-20, -5], [-17, 8], [-22, 16],
+    [18, -18], [20, -3], [17, 10], [22, 15],
+    [-18, 18], [0, -20], [0, 20], [18, 18],
+    [-25, 0], [25, 0], [-10, -22], [10, -22],
+    [-10, 22], [10, 22], [-25, -12], [25, 12],
+    [-30, -25], [30, -25], [-30, 25], [30, 25],
+  ];
+  treePositions.forEach(([tx, tz]) => createTree(tx, tz));
+
+  // ── Flowers scattered on the arena floor ──
+  const flowerColors = [0xff4466, 0xffee44, 0x44aaff, 0xff88cc, 0xffffff, 0xff6600];
+  for (let i = 0; i < 40; i++) {
+    const fx = (Math.random() - 0.5) * (ARENA_SIZE - 4);
+    const fz = (Math.random() - 0.5) * (ARENA_SIZE - 4);
+    const stemGeo = new THREE.BoxGeometry(0.08, 0.35, 0.08);
+    const stemMat = new THREE.MeshLambertMaterial({ color: 0x33aa33 });
+    const stem = new THREE.Mesh(stemGeo, stemMat);
+    stem.position.set(fx, 0.175, fz);
+    arenaGroup.add(stem);
+
+    const petalGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+    const petalMat = new THREE.MeshLambertMaterial({ color: flowerColors[Math.floor(Math.random() * flowerColors.length)] });
+    const petal = new THREE.Mesh(petalGeo, petalMat);
+    petal.position.set(fx, 0.4, fz);
+    arenaGroup.add(petal);
+  }
+
+  // ── Tall grass patches ──
+  const tallGrassColor = 0x4da832;
+  for (let i = 0; i < 60; i++) {
+    const gx = (Math.random() - 0.5) * (ARENA_SIZE - 2);
+    const gz = (Math.random() - 0.5) * (ARENA_SIZE - 2);
+    const bladeGeo = new THREE.BoxGeometry(0.12, 0.5 + Math.random() * 0.3, 0.12);
+    const bladeMat = new THREE.MeshLambertMaterial({ color: tallGrassColor, transparent: true, opacity: 0.9 });
+    const blade = new THREE.Mesh(bladeGeo, bladeMat);
+    blade.position.set(gx, 0.25, gz);
+    blade.rotation.y = Math.random() * Math.PI;
+    arenaGroup.add(blade);
+  }
+
+  // ── Corner oak logs (decorative boundary markers) ──
+  const logColor = 0x6B4226;
+  const logTopColor = 0x8B6914;
+  [[-HALF, -HALF], [HALF, -HALF], [-HALF, HALF], [HALF, HALF]].forEach(([cx, cz]) => {
+    for (let y = 0; y < 3; y++) {
+      const log = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshLambertMaterial({ color: logColor })
+      );
+      log.position.set(cx, y + 0.5, cz);
+      log.castShadow = true;
+      arenaGroup.add(log);
+    }
+    // Glowstone on top
+    const glowstone = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({ color: 0xffdd66 })
+    );
+    glowstone.position.set(cx, 3.5, cz);
+    arenaGroup.add(glowstone);
+    const glowLight = new THREE.PointLight(0xffdd66, 1.0, 15);
+    glowLight.position.set(cx, 4.5, cz);
+    arenaGroup.add(glowLight);
   });
 
-  // Overhead lights (multiple for larger arena)
-  const overheadPositions = [[0, 0], [-8, -8], [8, -8], [-8, 8], [8, 8]];
-  overheadPositions.forEach(([x, z]) => {
-    const overheadLight = new THREE.PointLight(0xffffff, 1.2, 30);
-    overheadLight.position.set(x, 10, z);
-    arenaGroup.add(overheadLight);
-  });
+  // ── Lighting (sunny day) ──
+  const sunLight = new THREE.DirectionalLight(0xfffbe8, 1.4);
+  sunLight.position.set(20, 40, 15);
+  sunLight.castShadow = true;
+  sunLight.shadow.mapSize.width = 1024;
+  sunLight.shadow.mapSize.height = 1024;
+  sunLight.shadow.camera.near = 1;
+  sunLight.shadow.camera.far = 80;
+  sunLight.shadow.camera.left = -30;
+  sunLight.shadow.camera.right = 30;
+  sunLight.shadow.camera.top = 30;
+  sunLight.shadow.camera.bottom = -30;
+  arenaGroup.add(sunLight);
 
-  const ambientLight = new THREE.AmbientLight(0x334455, 0.8);
+  const ambientLight = new THREE.AmbientLight(0x8ec8f0, 0.7);
   arenaGroup.add(ambientLight);
+
+  const fillLight = new THREE.DirectionalLight(0xffd4a0, 0.3);
+  fillLight.position.set(-15, 10, -10);
+  arenaGroup.add(fillLight);
 
   scene.add(arenaGroup);
 }
@@ -257,8 +427,17 @@ export function handleArenaMessage(msg) {
       matchMode = msg.mode || '1v1';
       currentRound = msg.round;
       myTeam = msg.team || myTeam;
+      myHp = 100;
       const spawnPos = getSpawnPosition(msg.spawnSide);
       playerPos.set(spawnPos.x, spawnPos.y, spawnPos.z);
+      // Face toward arena center (+X from left spawn, −X from right spawn)
+      const faceCenter = msg.spawnSide === 'left' ? -Math.PI / 2 : Math.PI / 2;
+      setYaw(faceCenter);
+      // New round: show everyone again (elimination hides meshes until next setup)
+      arenaPlayers.forEach((pd) => {
+        pd.hp = 100;
+        if (pd.model && pd.model.group) pd.model.group.visible = true;
+      });
       // Set other players positions
       if (msg.otherPlayerIds) {
         msg.otherPlayerIds.forEach(pid => {
@@ -286,6 +465,9 @@ export function handleArenaMessage(msg) {
       phase = 'fighting';
       currentRound = msg.round;
       hideCountdown();
+      arenaPlayers.forEach((pd) => {
+        if (pd.model && pd.model.group) pd.model.group.visible = true;
+      });
       updateRoundDisplay();
       break;
     }
@@ -316,10 +498,26 @@ export function handleArenaMessage(msg) {
       if (defender) {
         defender.hp = msg.defenderHp;
         flashOpponentHitColor(msg.defenderId);
+        // Knockback remote model (clamped to arena)
+        if (defender.model && msg.attackerX != null) {
+          const dx = defender.targetPos.x - msg.attackerX;
+          const dz = defender.targetPos.z - msg.attackerZ;
+          const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+          defender.targetPos.x = Math.max(-14, Math.min(14, defender.targetPos.x + (dx / dist) * 1.2));
+          defender.targetPos.z = Math.max(-14, Math.min(14, defender.targetPos.z + (dz / dist) * 1.2));
+        }
       } else {
-        // I'm the defender
+        // I'm the defender — apply knockback
         myHp = msg.defenderHp;
         flashDamage();
+        if (msg.attackerX != null) {
+          const dx = playerPos.x - msg.attackerX;
+          const dz = playerPos.z - msg.attackerZ;
+          const dist = Math.sqrt(dx * dx + dz * dz) || 1;
+          velocity.x = (dx / dist) * 6;
+          velocity.z = (dz / dist) * 6;
+          velocity.y = 4;
+        }
       }
       updateHPBars();
       break;
@@ -444,7 +642,7 @@ export function updateArenaScene(delta, time, camera) {
     const dz = group.position.z - prevZ;
     const speed = delta > 0 ? Math.sqrt(dx * dx + dz * dz) / delta : 0;
 
-    const targetRotY = -pd.targetYaw + Math.PI;
+    const targetRotY = pd.targetYaw + Math.PI;
     let rotDiff = targetRotY - group.rotation.y;
     while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
     while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;

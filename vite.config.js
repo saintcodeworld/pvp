@@ -6,7 +6,10 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     rollupOptions: {
-      input: 'index.html',
+      input: {
+        main: 'index.html',
+        bots: 'bots.html',
+      },
     },
   },
   server: {
@@ -15,6 +18,9 @@ export default defineConfig({
       '/ws': {
         target: 'ws://localhost:3000',
         ws: true,
+      },
+      '/api': {
+        target: 'http://localhost:3000',
       },
     },
   },

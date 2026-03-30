@@ -100,6 +100,16 @@ export function updatePlayerMovement(delta) {
   moveVec.addScaledVector(forward, -direction.z * moveSpeed * delta);
   moveVec.addScaledVector(right, direction.x * moveSpeed * delta);
 
+  // Apply knockback velocity (horizontal)
+  moveVec.x += velocity.x * delta;
+  moveVec.z += velocity.z * delta;
+
+  // Decay knockback (friction)
+  velocity.x *= Math.max(0, 1 - 8 * delta);
+  velocity.z *= Math.max(0, 1 - 8 * delta);
+  if (Math.abs(velocity.x) < 0.1) velocity.x = 0;
+  if (Math.abs(velocity.z) < 0.1) velocity.z = 0;
+
   const testPosX = playerPos.clone();
   testPosX.x += moveVec.x;
   if (!checkCollision(testPosX)) {
@@ -126,9 +136,11 @@ export function updatePlayerMovement(delta) {
     }
   }
 
-  // World bounds (museum)
-  playerPos.x = Math.max(-19, Math.min(18, playerPos.x));
-  playerPos.z = Math.max(-29, Math.min(29, playerPos.z));
+  // World bounds (museum only — arena/FFA handle their own bounds)
+  if (collisionEnabled) {
+    playerPos.x = Math.max(-19, Math.min(18, playerPos.x));
+    playerPos.z = Math.max(-29, Math.min(29, playerPos.z));
+  }
 }
 
 export function updateCamera() {

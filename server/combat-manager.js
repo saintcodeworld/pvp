@@ -16,10 +16,11 @@ function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, chan
       id: lobbyId,
       mode: '1v1',
       playerIds: [creatorId, guestId],
+      playerNames: {},
       teams: { [creatorId]: 1, [guestId]: 2 },
       hp: { [creatorId]: 100, [guestId]: 100 },
       alive: new Set([creatorId, guestId]),
-      roundWins: { 1: 0, 2: 0 }, // team-based wins
+      roundWins: { 1: 0, 2: 0 },
       currentRound: 1,
       phase: 'countdown',
       countdownTimer: 5,
@@ -29,7 +30,13 @@ function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, chan
       heartSpawnTimer: 3 + Math.random() * 5,
       startTime: Date.now(),
       intervalId: null,
+      pendingTimeout: null,
     };
+
+    // Snapshot names at match creation so they survive disconnects
+    match.playerIds.forEach(pid => {
+      match.playerNames[pid] = players.get(pid)?.state?.name || 'Unknown';
+    });
 
     matches.set(lobbyId, match);
     match.playerIds.forEach(pid => {
@@ -55,6 +62,7 @@ function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, chan
       id: lobbyId,
       mode: '2v2',
       playerIds,
+      playerNames: {},
       teams,
       hp,
       alive: new Set(playerIds),
@@ -68,7 +76,13 @@ function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, chan
       heartSpawnTimer: 3 + Math.random() * 5,
       startTime: Date.now(),
       intervalId: null,
+      pendingTimeout: null,
     };
+
+    // Snapshot names at match creation so they survive disconnects
+    playerIds.forEach(pid => {
+      match.playerNames[pid] = players.get(pid)?.state?.name || 'Unknown';
+    });
 
     matches.set(lobbyId, match);
     playerIds.forEach(pid => {
@@ -82,10 +96,13 @@ function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, chan
 
   // ─── COUNTDOWN & TICK ────────────────────────────────────────────
   function startCountdown(match) {
+    if (match.phase === 'match_end') return;
     match.phase = 'countdown';
     match.countdownTimer = 5;
+    // Only revive players that are still connected
+    const connected = match.playerIds.filter(pid => players.get(pid));
     match.playerIds.forEach(pid => { match.hp[pid] = 100; });
-    match.alive = new Set(match.playerIds);
+    match.alive = new Set(connected);
     match.hearts = [];
     match.heartSpawnCount = 0;
     match.heartSpawnTimer = 3 + Math.random() * 5;
@@ -254,6 +271,8 @@ function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, chan
             defenderId: targetId,
             defenderHp: match.hp[targetId],
             attackerHp: match.hp[playerId],
+            attackerX: attacker.x,
+            attackerZ: attacker.z,
           });
 
           // Forward swing animation
@@ -281,8 +300,25 @@ function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, chan
 
     if (aliveTeams.size > 1) return; // Round still going
 
+    if (aliveTeams.size === 0) {
+      const stillHere = match.playerIds.filter(pid => players.get(pid));
+      if (stillHere.length === 1) {
+        const winTeam = match.teams[stillHere[0]];
+        match.roundWins[winTeam] = Math.max(match.roundWins[winTeam] || 0, 2);
+        endMatch(match, winTeam);
+      } else if (stillHere.length === 0) {
+        match.phase = 'match_end';
+        if (match.intervalId) { clearInterval(match.intervalId); match.intervalId = null; }
+        if (match.pendingTimeout) { clearTimeout(match.pendingTimeout); match.pendingTimeout = null; }
+        match.playerIds.forEach(pid => playerMatchIndex.delete(pid));
+        lobbyManager.removeLobby(match.id);
+        matches.delete(match.id);
+      }
+      return;
+    }
+
     const winningTeam = aliveTeams.values().next().value;
-    if (winningTeam === undefined) return; // shouldn't happen
+    if (winningTeam === undefined) return;
 
     match.phase = 'round_end';
     match.roundWins[winningTeam]++;
@@ -296,21 +332,34 @@ function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, chan
 
     // Best of 3
     if (match.roundWins[winningTeam] >= 2) {
-      setTimeout(() => endMatch(match, winningTeam), 2000);
+      match.pendingTimeout = setTimeout(() => {
+        match.pendingTimeout = null;
+        endMatch(match, winningTeam);
+      }, 2000);
     } else {
       match.currentRound++;
-      setTimeout(() => startCountdown(match), 3000);
+      match.pendingTimeout = setTimeout(() => {
+        match.pendingTimeout = null;
+        startCountdown(match);
+      }, 3000);
     }
   }
 
   async function endMatch(match, winningTeam) {
+    if (match.phase === 'match_end') {
+      console.log(`[Combat] endMatch called but already in match_end — skipping`);
+      return;
+    }
     match.phase = 'match_end';
-    if (match.intervalId) clearInterval(match.intervalId);
+    if (match.intervalId) { clearInterval(match.intervalId); match.intervalId = null; }
+    if (match.pendingTimeout) { clearTimeout(match.pendingTimeout); match.pendingTimeout = null; }
 
     const winnerIds = match.playerIds.filter(pid => match.teams[pid] === winningTeam);
     const loserIds = match.playerIds.filter(pid => match.teams[pid] !== winningTeam);
-    const winnerNames = winnerIds.map(pid => players.get(pid)?.state?.name || 'Unknown');
-    const loserNames = loserIds.map(pid => players.get(pid)?.state?.name || 'Unknown');
+    const winnerNames = winnerIds.map(pid => match.playerNames[pid] || 'Unknown');
+    const loserNames = loserIds.map(pid => match.playerNames[pid] || 'Unknown');
+
+    console.log(`[Combat] endMatch: ${winnerNames.join('&')} beat ${loserNames.join('&')} — sending match_end to all`);
 
     sendToAll(match, {
       type: 'match_end',
@@ -339,8 +388,9 @@ function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, chan
       }
     }
 
-    // Return all players to museum
+    // Return all still-connected players to museum after showing result
     setTimeout(() => {
+      console.log(`[Combat] Returning players to museum for match ${match.id}`);
       match.playerIds.forEach(pid => returnToMuseum(match, pid));
       lobbyManager.removeLobby(match.id);
       matches.delete(match.id);
@@ -364,12 +414,43 @@ function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, chan
     const matchId = playerMatchIndex.get(playerId);
     if (matchId == null) return;
     const match = matches.get(matchId);
-    if (!match || match.phase === 'match_end') return;
+    if (!match || match.phase === 'match_end') {
+      playerMatchIndex.delete(playerId);
+      return;
+    }
+
+    console.log(`[Combat] Player ${playerId} disconnected during phase="${match.phase}" round=${match.currentRound}`);
+
+    // Cancel any pending round/match timeouts so they don't fire after forfeit
+    if (match.pendingTimeout) {
+      clearTimeout(match.pendingTimeout);
+      match.pendingTimeout = null;
+      console.log(`[Combat] Cancelled pending timeout for match ${match.id}`);
+    }
 
     match.alive.delete(playerId);
     match.hp[playerId] = 0;
+    playerMatchIndex.delete(playerId);
     sendToAll(match, { type: 'player_eliminated', playerId, killerId: null });
-    checkRoundEnd(match);
+
+    // Find remaining connected players (regardless of alive status — forfeit gives them the win)
+    const connectedOthers = match.playerIds.filter(pid => pid !== playerId && players.get(pid));
+
+    if (connectedOthers.length === 0) {
+      // Nobody left — just clean up
+      console.log(`[Combat] No players remain — cleaning up match ${match.id}`);
+      if (match.intervalId) { clearInterval(match.intervalId); match.intervalId = null; }
+      match.playerIds.forEach(pid => playerMatchIndex.delete(pid));
+      lobbyManager.removeLobby(match.id);
+      matches.delete(match.id);
+      return;
+    }
+
+    // At least one opponent remains — they win the entire match (forfeit)
+    const winningTeam = match.teams[connectedOthers[0]];
+    match.roundWins[winningTeam] = Math.max(match.roundWins[winningTeam] || 0, 2);
+    console.log(`[Combat] Forfeit: team ${winningTeam} wins match ${match.id} — calling endMatch`);
+    endMatch(match, winningTeam);
   }
 
   function sendToAll(match, msg) {
