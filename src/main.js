@@ -48,10 +48,6 @@ import {
   sendFFAPositionUpdate, sendFFASwing, getFFAPhase
 } from './ffa-arena.js';
 import {
-  initVoiceChat, startTalking, stopTalking,
-  handleVoiceSignal, cleanupVoice, isVoiceEnabled
-} from './voice-chat.js';
-import {
   detectMobile, initMobileControls, getIsMobile,
   mobileForward, mobileRight, mobileLookX, mobileLookY,
   mobileJump, mobileAttack, mobileInteract, resetMobileFrame
@@ -216,18 +212,8 @@ function setupControls() {
         break;
       case 'Digit1': selectHotbarSlot(0); break;
       case 'Digit2': selectHotbarSlot(1); break;
-      case 'Digit3': selectHotbarSlot(2); break;
-      case 'Digit4': selectHotbarSlot(3); break;
-      case 'Digit5': selectHotbarSlot(4); break;
-      case 'Digit6': selectHotbarSlot(5); break;
-      case 'Digit7': selectHotbarSlot(6); break;
-      case 'Digit8': selectHotbarSlot(7); break;
-      case 'Digit9': selectHotbarSlot(8); break;
       case 'KeyQ':
         if (gameState === 'ffa_queue') leaveFFAQueue();
-        break;
-      case 'KeyV':
-        if (!e.repeat) startTalking();
         break;
     }
   });
@@ -239,7 +225,6 @@ function setupControls() {
       case 'KeyA': case 'ArrowLeft': setMoveLeft(false); break;
       case 'KeyD': case 'ArrowRight': setMoveRight(false); break;
       case 'Space': setSpacePressed(false); break;
-      case 'KeyV': stopTalking(); break;
     }
   });
 
@@ -571,12 +556,6 @@ async function init() {
       return;
     }
 
-    // Voice signaling
-    if (msg.type === 'voice_offer' || msg.type === 'voice_answer' || msg.type === 'voice_ice') {
-      handleVoiceSignal(msg);
-      return;
-    }
-
     // returned_to_museum can come from lobby, arena, or FFA
     if (msg.type === 'returned_to_museum') {
       if (gameState === 'ffa') {
@@ -596,7 +575,7 @@ async function init() {
   await sleep(50);
   buildMuseum();
 
-  updateLoading(50, 'Constructing PVP Wars Portal...');
+  updateLoading(50, 'Constructing PVP WARS Portal...');
   await sleep(50);
   createPVPPortal();
   createFFABlock();
@@ -649,9 +628,6 @@ async function init() {
   if (getIsMobile()) {
     initMobileControls();
   }
-
-  // Init voice chat
-  initVoiceChat();
 
   // Init settings UI
   initSettings();

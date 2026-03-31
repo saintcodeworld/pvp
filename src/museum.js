@@ -22,7 +22,7 @@ export const exhibitData = {
   bio_early: {
     title: "The Genesis Block",
     body: `<p>It all started with a single block — the <strong>Genesis Block</strong>. In the beginning, there was nothing but an empty chain and a dream: to build a decentralized arena where warriors fight for onchain glory.</p>
-<p>PVP Wars was born from the collision of two worlds — the pixelated battlefields of Minecraft and the wild frontier of <strong>Solana memecoins</strong>. A place where your sword arm matters as much as your diamond hands.</p>
+<p>PVP WARS was born from the collision of two worlds — the pixelated battlefields of Minecraft and the wild frontier of <strong>Solana memecoins</strong>. A place where your sword arm matters as much as your diamond hands.</p>
 <p>The first block was mined, the first token was minted, and the arena gates opened. Every warrior who enters carries the spirit of the Genesis Block — the belief that anyone can rise from nothing to become a legend onchain.</p>`
   },
   bio_martial: {
@@ -30,13 +30,13 @@ export const exhibitData = {
     body: `<p><strong>Pump.fun</strong> changed everything. The green capsule became the symbol of a new era — where anyone could launch a token and let the community decide its fate.</p>
 <p>Born on Solana, Pump.fun introduced <strong>bonding curves</strong> that let tokens launch fair, without presales or VCs. Just pure community energy, raw degen plays, and the dream of catching the next 1000x.</p>
 <p>The platform became a cultural phenomenon — spawning legendary coins, viral moments, and an entire ecosystem of traders, snipers, and diamond-handed holders.</p>
-<p>In PVP Wars, we honor this spirit. Every battle is a fair fight. No advantages, no presales — just skill, strategy, and the will to win.</p>`
+<p>In PVP WARS, we honor this spirit. Every battle is a fair fight. No advantages, no presales — just skill, strategy, and the will to win.</p>`
   },
   bio_film: {
     title: "The Solana Battlefield",
     body: `<p>Solana isn't just a blockchain — it's a <strong>battlefield</strong>. With sub-second finality and fees measured in fractions of a cent, it became the perfect arena for onchain combat.</p>
 <p>From the early days of <strong>$BONK</strong> to the rise of <strong>$WIF</strong>, <strong>$POPCAT</strong>, and countless others, Solana proved that speed kills — and in the memecoin world, being first matters.</p>
-<p>PVP Wars brings this same energy to voxel combat. Fast-paced, high-stakes battles where every swing of the sword could be your last — or your moment of glory.</p>
+<p>PVP WARS brings this same energy to voxel combat. Fast-paced, high-stakes battles where every swing of the sword could be your last — or your moment of glory.</p>
 <p>The Solana battlefield never sleeps. Neither do its warriors.</p>`
   },
   facts_wall: {
@@ -44,31 +44,31 @@ export const exhibitData = {
     body: `<p>� The first memecoin to reach $1B market cap on Solana did it in under 48 hours.</p>
 <p>� Pump.fun has launched over 5 million tokens since its inception.</p>
 <p>🚀 Diamond hands don't sell — they HODL through the dip and come out the other side stronger.</p>
-<p>� In PVP Wars, your kill streak is worth more than any airdrop.</p>
+<p>� In PVP WARS, your kill streak is worth more than any airdrop.</p>
 <p>� The green candle is the universal symbol of hope in the crypto world.</p>
 <p>� "Wen moon?" is not a question — it's a battle cry.</p>
 <p>� A true degen never sleeps. They just switch from trading to PVP at 3am.</p>
 <p>� The best rug pull defense? A diamond sword and fast reflexes.</p>
-<p>� Every PVP Wars champion started as a noob with nothing but a fist and a dream.</p>
+<p>� Every PVP WARS champion started as a noob with nothing but a fist and a dream.</p>
 <p>� WAGMI — We're All Gonna Make It. But first, you gotta survive the arena.</p>`
   },
   delta_force: {
     title: "The Pump Capsule",
     body: `<p>Before you stands a replica of the iconic <strong>Pump.fun capsule</strong> — the green and white symbol that launched a million tokens.</p>
 <p>The capsule represents the moment of creation — when a new token is born from the bonding curve and enters the wild. Some will moon. Most will fade. But every single one carries the same electric energy of possibility.</p>
-<p>In PVP Wars, we've adopted the capsule as a symbol of <strong>power-ups and loot drops</strong>. When you see a capsule in the arena, grab it — it might just save your life.</p>`
+<p>In PVP WARS, we've adopted the capsule as a symbol of <strong>power-ups and loot drops</strong>. When you see a capsule in the arena, grab it — it might just save your life.</p>`
   },
   walker_badge: {
     title: "Diamond Hands Badge",
     body: `<p>The <strong>Diamond Hands Badge</strong> is awarded to warriors who never quit — who hold their ground in the arena even when the odds are stacked against them.</p>
-<p>In crypto, diamond hands means holding through the crash, believing in the vision when everyone else is panic selling. In PVP Wars, it means standing your ground when your HP is low and your opponent smells blood.</p>
+<p>In crypto, diamond hands means holding through the crash, believing in the vision when everyone else is panic selling. In PVP WARS, it means standing your ground when your HP is low and your opponent smells blood.</p>
 <p>The greatest PVP warriors share one trait with the greatest traders: <strong>unshakeable conviction</strong>. They don't flinch. They don't run. They swing harder.</p>`
   },
   way_of_dragon: {
     title: "Rug Pull Survivors Guild",
     body: `<p>This exhibit honors the <strong>Rug Pull Survivors</strong> — the battle-hardened degens who lost everything and came back stronger.</p>
 <p>Every crypto veteran has a rug pull story. The dev who disappeared. The liquidity that vanished. The chart that went vertical — then straight to zero.</p>
-<p>But true warriors don't stay down. They learn, adapt, and come back with sharper instincts and harder resolve. In PVP Wars, every defeat is a lesson. Every loss makes you stronger.</p>
+<p>But true warriors don't stay down. They learn, adapt, and come back with sharper instincts and harder resolve. In PVP WARS, every defeat is a lesson. Every loss makes you stronger.</p>
 <p>"The arena doesn't care about your bags. It only cares about your blade."</p>`
   },
   training_zone: {

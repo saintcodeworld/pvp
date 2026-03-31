@@ -1519,13 +1519,6 @@ function setupControls() {
         break;
       case 'Digit1': selectHotbarSlot(0); break;
       case 'Digit2': selectHotbarSlot(1); break;
-      case 'Digit3': selectHotbarSlot(2); break;
-      case 'Digit4': selectHotbarSlot(3); break;
-      case 'Digit5': selectHotbarSlot(4); break;
-      case 'Digit6': selectHotbarSlot(5); break;
-      case 'Digit7': selectHotbarSlot(6); break;
-      case 'Digit8': selectHotbarSlot(7); break;
-      case 'Digit9': selectHotbarSlot(8); break;
     }
   });
 
@@ -1695,7 +1688,7 @@ function playAmbientMusic() {
 // ─── SOCIAL SHARING ─────────────────────────────────────────────────
 window.shareTo = function(platform) {
   const url = encodeURIComponent(window.location.href);
-  const text = encodeURIComponent("I'm exploring the Chuck Norris Memorial Museum! 🏛️🥋");
+  const text = encodeURIComponent("I'm exploring PVP WARS! ⚔️🚀");
   switch (platform) {
     case 'twitter':
       window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank');

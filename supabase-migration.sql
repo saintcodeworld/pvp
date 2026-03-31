@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════
--- MUZZEUM — Supabase Database Migration
+-- PVP WARS — Supabase Database Migration
 -- Run this SQL in: Supabase Dashboard → SQL Editor → New Query
 -- ═══════════════════════════════════════════════════════════════════
 

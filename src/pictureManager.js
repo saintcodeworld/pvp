@@ -185,7 +185,7 @@ export function updatePicturePreview() {
 }
 
 // ─── SAVE / LOAD (localStorage) ──────────────────────────────────
-const STORAGE_KEY = 'muzzeum_picture_layout';
+const STORAGE_KEY = 'pvp_wars_picture_layout';
 
 export function savePictureLayout() {
   const data = registeredPictures.map((group, index) => ({

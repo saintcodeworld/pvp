@@ -1,4 +1,4 @@
-// ─── LOBBY MANAGER — create/join/list lobbies for PVP Wars ─────────
+// ─── LOBBY MANAGER — create/join/list lobbies for PVP WARS ─────────
 // Supports: 1v1, 2v2, private lobbies with codes
 
 function generateLobbyCode() {

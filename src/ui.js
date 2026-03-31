@@ -130,7 +130,7 @@ export function getAudioCtx() { return audioCtx; }
 // ─── SOCIAL SHARING ─────────────────────────────────────────────────
 window.shareTo = function(platform) {
   const url = encodeURIComponent(window.location.href);
-  const text = encodeURIComponent("I'm battling in PVP Wars — Memecoin Arena! ⚔️🚀");
+  const text = encodeURIComponent("I'm battling in PVP WARS — Memecoin Arena! ⚔️🚀");
   switch (platform) {
     case 'twitter':
       window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank');

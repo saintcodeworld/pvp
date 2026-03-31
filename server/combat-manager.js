@@ -239,7 +239,6 @@ function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, chan
         if (now - lastHit < 300) break;
 
         const attacker = player.state;
-        const attackAngle = Math.atan2(-Math.sin(attacker.yaw), -Math.cos(attacker.yaw));
         const myTeam = match.teams[playerId];
 
         // Check all alive enemies
@@ -257,12 +256,6 @@ function setupCombatManager(players, broadcastToRoom, sendTo, lobbyManager, chan
           const dz = defender.z - attacker.z;
           const dist = Math.sqrt(dx * dx + dz * dz);
           if (dist > 2.5) return;
-
-          const toDefenderAngle = Math.atan2(dx, dz);
-          let angleDiff = attackAngle - toDefenderAngle;
-          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-          if (Math.abs(angleDiff) > Math.PI / 2) return;
 
           // Valid hit
           match.lastHitTime[playerId] = now;

@@ -595,7 +595,7 @@ export const pixelArt = {
     ];
   })(),
 
-  // PVP Wars sword icon (16x16)
+  // PVP WARS sword icon (16x16)
   pvpSwords: (() => {
     const _ = null, S = '#ccc', W = '#fff', G = '#ffd700', R = '#cc2222', P = '#9933ff';
     return [

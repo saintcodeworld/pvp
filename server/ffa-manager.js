@@ -130,7 +130,6 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
         if (now - lastHit < FFA_HIT_COOLDOWN) break;
 
         const attacker = player.state;
-        const attackAngle = Math.atan2(-Math.sin(attacker.yaw), -Math.cos(attacker.yaw));
 
         // Check all alive enemies (everyone is an enemy in FFA)
         match.playerIds.forEach(targetId => {
@@ -145,12 +144,6 @@ function setupFFAManager(players, broadcastToRoom, sendTo, changeRoom, getMuseum
           const dz = defender.z - attacker.z;
           const dist = Math.sqrt(dx * dx + dz * dz);
           if (dist > 3.5) return;
-
-          const toDefenderAngle = Math.atan2(dx, dz);
-          let angleDiff = attackAngle - toDefenderAngle;
-          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-          if (Math.abs(angleDiff) > Math.PI / 2) return;
 
           // Valid hit
           match.lastHitTime[playerId] = now;

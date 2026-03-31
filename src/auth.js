@@ -78,7 +78,7 @@ export async function initAuth(onAuthenticated) {
     }
 
     // Generate synthetic email for Supabase
-    const email = `${username.toLowerCase()}@muzzeum.local`;
+    const email = `${username.toLowerCase()}@pvpwars.local`;
 
     submitBtn.disabled = true;
     submitBtn.textContent = authMode === 'signin' ? 'Signing in...' : 'Signing up...';

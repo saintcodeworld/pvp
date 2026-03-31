@@ -179,7 +179,7 @@ wss.on('connection', (ws) => {
 // ─── START ───────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🏛️  Chuck Norris Memorial Museum — Multiplayer Server`);
+  console.log(`⚔️  PVP WARS — Multiplayer Server`);
   console.log(`   http://localhost:${PORT}`);
   console.log(`   WebSocket on same port`);
 });
