@@ -16,7 +16,6 @@ export let isSwinging = false;
 export let swordSwing = 0;
 export let exhibitOpen = false;
 export let currentExhibit = null;
-export let minimapVisible = false;
 export let chatOpen = false;
 export let collisionEnabled = true;
 
@@ -45,7 +44,6 @@ export function setIsSwinging(v) { isSwinging = v; }
 export function setSwordSwing(v) { swordSwing = v; }
 export function setExhibitOpen(v) { exhibitOpen = v; }
 export function setCurrentExhibit(v) { currentExhibit = v; }
-export function setMinimapVisible(v) { minimapVisible = v; }
 export function setChatOpen(v) { chatOpen = v; }
 export function setCollisionEnabled(v) { collisionEnabled = v; }
 

@@ -1,4 +1,4 @@
-import { playerPos, yaw, isLocked, minimapVisible, exhibitOpen } from './player.js';
+import { playerPos, yaw } from './player.js';
 import { interactables } from './museum.js';
 import { remotePlayers } from './multiplayer.js';
 
@@ -23,58 +23,99 @@ export function closeExhibitPanel() {
   document.getElementById('exhibit-panel').style.display = 'none';
 }
 
-// ─── MINIMAP ────────────────────────────────────────────────────────
+// ─── MINIMAP (center = player; +Z is “up” on screen to match forward −Z in world) ─
+const MAP_SIZE = 140;
+const MAP_CX = 70;
+const MAP_CY = 70;
+
+/** Museum: building + exhibits + facing — world xz match movement vectors in player.js */
 export function updateMinimap() {
-  if (!minimapVisible) return;
   const canvas = document.getElementById('minimap-canvas');
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#111';
-  ctx.fillRect(0, 0, 140, 140);
+  ctx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
 
   const scale = 1.5;
-  const ox = 70 - playerPos.x * scale;
-  const oz = 70 - playerPos.z * scale;
+  const px = playerPos.x;
+  const pz = playerPos.z;
+  const sx = (wx) => MAP_CX + (wx - px) * scale;
+  const sy = (wz) => MAP_CY - (wz - pz) * scale;
 
   ctx.fillStyle = '#555';
-  ctx.fillRect(ox + (-20) * scale, oz + (-30) * scale, 40 * scale, 60 * scale);
+  ctx.fillRect(sx(-20), sy(30), 40 * scale, 60 * scale);
   ctx.fillStyle = '#222';
-  ctx.fillRect(ox + (-19) * scale, oz + (-29) * scale, 38 * scale, 58 * scale);
+  ctx.fillRect(sx(-19), sy(29), 38 * scale, 58 * scale);
 
   ctx.fillStyle = '#f5a623';
   interactables.forEach(item => {
-    const sx = ox + item.position.x * scale;
-    const sy = oz + item.position.z * scale;
-    ctx.fillRect(sx - 2, sy - 2, 4, 4);
+    const x = sx(item.position.x);
+    const y = sy(item.position.z);
+    ctx.fillRect(x - 2, y - 2, 4, 4);
   });
 
   ctx.fillStyle = '#00ff00';
   ctx.beginPath();
-  ctx.arc(70, 70, 3, 0, Math.PI * 2);
+  ctx.arc(MAP_CX, MAP_CY, 3, 0, Math.PI * 2);
   ctx.fill();
 
+  // Forward = (−sin(yaw), −cos(yaw)) in xz — 10px needle
   ctx.strokeStyle = '#00ff00';
   ctx.beginPath();
-  ctx.moveTo(70, 70);
-  ctx.lineTo(70 + Math.sin(yaw) * 10, 70 - Math.cos(yaw) * 10);
+  ctx.moveTo(MAP_CX, MAP_CY);
+  ctx.lineTo(MAP_CX - Math.sin(yaw) * 10, MAP_CY + Math.cos(yaw) * 10);
   ctx.stroke();
 }
 
 export function drawRemotePlayersOnMinimap() {
-  if (!minimapVisible) return;
   const canvas = document.getElementById('minimap-canvas');
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const scale = 1.5;
-  const ox = 70 - playerPos.x * scale;
-  const oz = 70 - playerPos.z * scale;
+  const px = playerPos.x;
+  const pz = playerPos.z;
+  const sx = (wx) => MAP_CX + (wx - px) * scale;
+  const sy = (wz) => MAP_CY - (wz - pz) * scale;
 
   remotePlayers.forEach((rp) => {
     ctx.fillStyle = rp.data.color || '#ff4444';
-    const sx = ox + rp.targetPos.x * scale;
-    const sy = oz + rp.targetPos.z * scale;
+    const x = sx(rp.targetPos.x);
+    const y = sy(rp.targetPos.z);
     ctx.beginPath();
-    ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
+    ctx.arc(x, y, 2.5, 0, Math.PI * 2);
     ctx.fill();
   });
+}
+
+/** PvP / FFA: arena outline + you + facing (same xz convention as museum) */
+export function updateCombatMinimap(kind) {
+  const canvas = document.getElementById('minimap-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
+
+  const half = kind === 'arena' ? 15 : 19;
+  const s = 130 / (2 * half);
+  const px = playerPos.x;
+  const pz = playerPos.z;
+  const sx = (wx) => MAP_CX + (wx - px) * s;
+  const sy = (wz) => MAP_CY - (wz - pz) * s;
+
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(sx(-half), sy(half), 2 * half * s, sy(-half) - sy(half));
+
+  ctx.fillStyle = '#00ff00';
+  ctx.beginPath();
+  ctx.arc(MAP_CX, MAP_CY, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#00ff00';
+  ctx.beginPath();
+  ctx.moveTo(MAP_CX, MAP_CY);
+  ctx.lineTo(MAP_CX - Math.sin(yaw) * 10, MAP_CY + Math.cos(yaw) * 10);
+  ctx.stroke();
 }
 
 // ─── AUDIO ──────────────────────────────────────────────────────────

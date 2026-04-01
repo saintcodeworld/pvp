@@ -6,12 +6,12 @@ let leaderboardMesh = null;
 let lastPvpFetchTime = 0;
 let lastFfaFetchTime = 0;
 const PVP_REFRESH_INTERVAL = 60000; // 1 min re-check (query filters 30min window)
-const FFA_REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minutes
+const FFA_REFRESH_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
 let pvpData = [];
 let ffaData = [];
 let activeTab = 'pvp'; // 'pvp' | 'ffa'
-let pvpResetTime = Date.now() + 30 * 60000; // when PVP leaderboard resets
-let ffaResetTime = Date.now() + 30 * 60000; // when FFA leaderboard resets
+let pvpResetTime = Date.now() + 24 * 60 * 60 * 1000; // when PVP leaderboard resets
+let ffaResetTime = Date.now() + 24 * 60 * 60 * 1000; // when FFA leaderboard resets
 let timerIntervalId = null;
 
 export function setLeaderboardScene(s) { scene = s; }
@@ -42,7 +42,7 @@ async function fetchPvpLeaderboard(forceRefresh = false) {
     pvpData = payload.data;
 
     lastPvpFetchTime = Date.now();
-    pvpResetTime = Date.now() + 30 * 60000;
+    pvpResetTime = Date.now() + 24 * 60 * 60 * 1000;
     if (activeTab === 'pvp') renderLeaderboard();
   } catch (err) { console.error('[LB] PVP error:', err); }
 }
@@ -154,9 +154,10 @@ function renderLeaderboard() {
 
 function formatTimer(ms) {
   const totalSec = Math.max(0, Math.floor(ms / 1000));
-  const m = Math.floor(totalSec / 60);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
-  return `${m}:${s.toString().padStart(2, '0')}`;
+  return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
 function renderPvpBoard(ctx) {
@@ -168,7 +169,7 @@ function renderPvpBoard(ctx) {
 
   ctx.fillStyle = '#888';
   ctx.font = '12px Courier New';
-  ctx.fillText('1v1 & 2v2 combined (30min)', 256, 100);
+  ctx.fillText('1v1 & 2v2 combined (24h)', 256, 100);
 
   // Headers
   ctx.fillStyle = '#f5a623';
@@ -234,7 +235,7 @@ function renderFfaBoard(ctx) {
 
   ctx.fillStyle = '#888';
   ctx.font = '12px Courier New';
-  ctx.fillText('Free For All (30min)', 256, 100);
+  ctx.fillText('Free For All (24h)', 256, 100);
 
   // Headers
   ctx.fillStyle = '#f5a623';

@@ -7,8 +7,8 @@ import {
 } from './museum.js';
 import {
   playerPos, playerHeight, floorY, yaw, pitch, velocity,
-  isLocked, exhibitOpen, currentExhibit, minimapVisible, chatOpen, activeSlot,
-  setIsLocked, setExhibitOpen, setCurrentExhibit, setMinimapVisible, setChatOpen,
+  isLocked, exhibitOpen, currentExhibit, chatOpen, activeSlot,
+  setIsLocked, setExhibitOpen, setCurrentExhibit, setChatOpen,
   setMoveForward, setMoveBackward, setMoveLeft, setMoveRight,
   setYaw, setPitch, setCollisionEnabled, setSpacePressed,
   initPlayer, getCamera, getRenderer,
@@ -26,7 +26,7 @@ import {
 } from './multiplayer.js';
 import {
   updateLoading, openExhibit, closeExhibitPanel,
-  updateMinimap, drawRemotePlayersOnMinimap,
+  updateMinimap, drawRemotePlayersOnMinimap, updateCombatMinimap,
   initAudio, getAudioCtx
 } from './ui.js';
 import { setPortalScene, createPVPPortal, createFFABlock, updatePortalAnimation, updateFFAQueueDisplay } from './portal.js';
@@ -132,10 +132,11 @@ function setupControls() {
         document.getElementById('crosshair').style.display = 'block';
         document.getElementById('hud').style.display = 'block';
         document.getElementById('social-bar').style.display = 'flex';
-        if (minimapVisible) document.getElementById('minimap').style.display = 'block';
+        document.getElementById('minimap').style.display = 'block';
       }
       if (gameState === 'arena' || gameState === 'ffa') {
         document.getElementById('crosshair').style.display = 'block';
+        document.getElementById('minimap').style.display = 'block';
       }
     } else {
       if (!exhibitOpen) {
@@ -150,10 +151,11 @@ function setupControls() {
           document.getElementById('social-bar').style.display = 'flex';
           if (gameState === 'museum') document.getElementById('player-count').style.display = 'block';
           document.getElementById('chat-box').style.display = 'flex';
-          if (minimapVisible) document.getElementById('minimap').style.display = 'block';
+          document.getElementById('minimap').style.display = 'block';
         }
         if (gameState === 'arena' || gameState === 'ffa') {
           document.getElementById('crosshair').style.display = 'none';
+          document.getElementById('minimap').style.display = 'block';
           showCombatResumeOverlay();
         }
       }
@@ -181,10 +183,6 @@ function setupControls() {
         break;
       case 'KeyE':
         if (isLocked) handleInteract();
-        break;
-      case 'KeyM':
-        setMinimapVisible(!minimapVisible);
-        document.getElementById('minimap').style.display = minimapVisible && isLocked ? 'block' : 'none';
         break;
       case 'KeyT':
         if (isLocked && !exhibitOpen && !chatOpen) {
@@ -354,6 +352,7 @@ function returnToMuseum() {
   document.getElementById('hud').style.display = 'block';
   document.getElementById('settings-btn').style.display = 'flex';
   document.getElementById('player-count').style.display = 'block';
+  document.getElementById('minimap').style.display = 'block';
 
   // Re-lock pointer for museum
   safeRequestPointerLock();
@@ -371,6 +370,8 @@ function enterPVPArena(gameData) {
 
   // Re-lock pointer for combat
   safeRequestPointerLock();
+
+  document.getElementById('minimap').style.display = 'block';
 
   // Auto-select sword slot for arena
   selectHotbarSlot(1);
@@ -424,7 +425,7 @@ function enterFFAArena(setupData) {
   document.getElementById('hud').style.display = 'none';
   document.getElementById('crosshair').style.display = 'none';
   document.getElementById('interact-prompt').style.display = 'none';
-  document.getElementById('minimap').style.display = 'none';
+  document.getElementById('minimap').style.display = 'block';
   document.getElementById('social-bar').style.display = 'none';
   document.getElementById('player-count').style.display = 'none';
   document.getElementById('chat-box').style.display = 'none';
@@ -889,6 +890,7 @@ function animate() {
         }
         updateArenaScene(delta, time, camera);
         sendArenaPositionUpdate();
+        updateCombatMinimap('arena');
 
         // Show crosshair and combat HUD when locked in arena
         if (isLocked) {
@@ -904,6 +906,7 @@ function animate() {
         }
         updateFFAScene(delta, time, camera);
         sendFFAPositionUpdate();
+        updateCombatMinimap('ffa');
 
         if (isLocked) {
           document.getElementById('crosshair').style.display = 'block';
