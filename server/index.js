@@ -620,9 +620,10 @@ wss.on('connection', (ws, req) => {
 
 // ─── START ──────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+const HOST = '0.0.0.0';
+server.listen(PORT, HOST, () => {
   console.log(`⚔️  PVP WARS — Multiplayer Server`);
-  console.log(`   http://localhost:${PORT}`);
+  console.log(`   http://${HOST}:${PORT}`);
   console.log(`   WebSocket on same port`);
 });
 

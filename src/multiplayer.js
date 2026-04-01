@@ -36,14 +36,11 @@ export function requestMuseumPlayerResync() {
 }
 
 // ─── CONNECT ────────────────────────────────────────────────────────
-// Dev: Vite (5173) proxies `/ws` → local game server (vite.config.js).
-// Production build: connect to the live game server (change if domain moves).
-const PRODUCTION_WS_URL = 'wss://www.pvpwars.fun/ws';
-
+// Always connect WS to the same host that served the page.
+// Dev: Vite proxies /ws → localhost:3000.  Render / production: same origin.
 export function connectWebSocket() {
-  const wsUrl = import.meta.env.DEV
-    ? `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`
-    : PRODUCTION_WS_URL;
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${location.host}/ws`;
   ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
