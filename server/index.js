@@ -97,9 +97,20 @@ const server = http.createServer((req, res) => {
 
 // ─── WEBSOCKET SERVER ───────────────────────────────────────────────
 const wss = new WebSocketServer({
-  server,
+  noServer: true,
   maxPayload: MAX_WS_PAYLOAD_BYTES,
   perMessageDeflate: false,
+});
+
+server.on('upgrade', (req, socket, head) => {
+  const { pathname } = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  if (pathname === '/ws') {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req);
+    });
+  } else {
+    socket.destroy();
+  }
 });
 
 // Shared state
